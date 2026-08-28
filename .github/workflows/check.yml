@@ -31,6 +31,42 @@ jobs:
         working-directory: home-controller
         run: python -m compileall -q . tools
 
+      - name: Helpers import cleanly and the tools scripts run
+        working-directory: home-controller
+        run: |
+          # plug_helper must be importable without executing a command:
+          # tools/ imports load_device from it. A bare main() call at module
+          # level breaks both tools scripts.
+          pip install --quiet python-dotenv
+          WORK=$(mktemp -d)
+          mkdir -p "$WORK/tools"
+          cp plug_helper.py "$WORK/"
+          cp tools/plug_test.py tools/plug_test2.py "$WORK/tools/"
+          printf 'class OutletDevice:\n    def __init__(self,*a,**k): pass\n    def set_version(self,v): pass\n    def turn_on(self): return {"stub":1}\n    def turn_off(self): return {"stub":0}\n    def status(self): return {}\n' > "$WORK/tinytuya.py"
+          cat > "$WORK/.env" <<'ENV'
+          PLUG_DISCO_ID=id1
+          PLUG_DISCO_IP=10.0.0.1
+          PLUG_DISCO_KEY=key1
+          PLUG_DISCO_VER=3.3
+          PLUG_SPOTLIGHT_ID=id2
+          PLUG_SPOTLIGHT_IP=10.0.0.2
+          PLUG_SPOTLIGHT_KEY=key2
+          PLUG_SPOTLIGHT_VER=3.3
+          PLUG_SPOTLIGHT2_ID=id3
+          PLUG_SPOTLIGHT2_IP=10.0.0.3
+          PLUG_SPOTLIGHT2_KEY=key3
+          PLUG_SPOTLIGHT2_VER=3.5
+          ENV
+          sed -i 's/^ *//' "$WORK/.env"
+          cd "$WORK"
+          PYTHONPATH=. python -c "import plug_helper; print('import clean')"
+          PYTHONPATH=. python plug_helper.py '{"device":"disco","on":true}' | grep -q '"ok": true'
+          PYTHONPATH=. python tools/plug_test.py disco  > /dev/null
+          PYTHONPATH=. python tools/plug_test2.py       > /dev/null
+          # an unknown plug and a missing variable must both fail loudly
+          PYTHONPATH=. python plug_helper.py '{"device":"nope"}' | grep -q 'Unknown plug'
+          echo "helpers OK"
+
       - name: Server boots and serves its API with no cameras configured
         working-directory: home-controller
         env:

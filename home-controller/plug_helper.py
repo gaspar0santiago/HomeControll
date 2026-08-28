@@ -55,4 +55,7 @@ def main():
         sys.exit(1)
 
 
-main()
+# Guarded so tools/ can `from plug_helper import load_device` without
+# running a command. server.js invokes this as a script, so it still runs.
+if __name__ == '__main__':
+    main()

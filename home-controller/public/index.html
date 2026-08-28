@@ -222,20 +222,9 @@
   </div>
 </div>
 
-<div class="camera-panel">
-  <div class="cam-block">
-    <div class="cam-label">Camera 1</div>
-    <div class="cam-wrap">
-      <img id="cam-feed" src="/camera/stream" onerror="reconnectCam('cam-feed','/camera/stream')">
-    </div>
-  </div>
-  <div class="cam-block">
-    <div class="cam-label">Camera 2</div>
-    <div class="cam-wrap">
-      <img id="cam-feed2" src="/camera2/stream" onerror="reconnectCam('cam-feed2','/camera2/stream')">
-    </div>
-  </div>
-</div>
+<!-- Tiles are built from /cameras, so a camera that is unplugged and
+     cleared from .env simply does not appear. -->
+<div class="camera-panel" id="camera-panel" style="display:none"></div>
 
 <script>
 const FAIRY_MACS = ['FF:24:12:11:07:D6', 'FF:24:12:11:0D:C6'];
@@ -253,8 +242,29 @@ setInterval(updateClock, 1000);
 
 function reconnectCam(id, src) {
   const img = document.getElementById(id);
-  setTimeout(() => { img.src = src + '?t=' + Date.now(); }, 3000);
+  if (img) setTimeout(() => { img.src = src + '?t=' + Date.now(); }, 3000);
 }
+
+async function buildCameras() {
+  const panel = document.getElementById('camera-panel');
+  let cams = [];
+  try { cams = await (await fetch('/cameras')).json(); } catch (e) {}
+  panel.innerHTML = '';
+  if (!cams.length) { panel.style.display = 'none'; return; }
+  cams.forEach(cam => {
+    const imgId = 'cam-feed-' + cam.id;
+    const block = document.createElement('div');
+    block.className = 'cam-block';
+    block.innerHTML = `
+      <div class="cam-label">Camera ${cam.id}</div>
+      <div class="cam-wrap">
+        <img id="${imgId}" src="${cam.path}" onerror="reconnectCam('${imgId}','${cam.path}')">
+      </div>`;
+    panel.appendChild(block);
+  });
+  panel.style.display = 'flex';
+}
+buildCameras();
 
 const ZONES = [
   { name: "Living Room", switchOnly: false, devices: [{ ip: "192.168.68.61" }, { ip: "192.168.68.68" }, { ip: "192.168.68.63" }, { ip: "192.168.68.71" }, { ip: "192.168.68.53" }, { ip: "192.168.68.69" }] },

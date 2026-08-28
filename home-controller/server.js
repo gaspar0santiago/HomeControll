@@ -35,9 +35,26 @@ app.get('/screen/state', (req, res) => res.json({ action: screenAction, timestam
 let prevFrameSum = 0;
 const MOTION_THRESHOLD = 0.02;
 
+// Every light command bumps this. The detector compares whole-frame
+// brightness, so our own light changes look exactly like motion -- ignore
+// frames for a moment after we touch anything, and while the party cycle
+// is running, or the screens would wake themselves every time a bulb moves.
+const MOTION_LIGHT_COOLDOWN_MS = 5000;
+let lastLightCommandAt = 0;
+
+function noteLightCommand() {
+  lastLightCommandAt = Date.now();
+}
+
+function motionSuppressed() {
+  if (partyInterval) return true;
+  return Date.now() - lastLightCommandAt < MOTION_LIGHT_COOLDOWN_MS;
+}
+
 function detectMotion(frame) {
   let sum = 0;
   for (let i = 0; i < frame.length; i += 20) sum += frame[i];
+  if (motionSuppressed()) { prevFrameSum = sum; return; }
   if (prevFrameSum > 0 && screenIsOff) {
     const diff = Math.abs(sum - prevFrameSum) / Math.max(prevFrameSum, 1);
     if (diff > MOTION_THRESHOLD) wakeScreens();
@@ -144,6 +161,7 @@ function checkPartyCycle() {
 
 // ── TAPO ──────────────────────────────────────────────────────
 function controlTapo(ip, payload) {
+  noteLightCommand();
   return new Promise((resolve, reject) => {
     const args = JSON.stringify({ email: process.env.TAPO_EMAIL, password: process.env.TAPO_PASSWORD, ip, ...payload });
     const proc = spawn('python', [path.join(__dirname, 'tapo_helper.py'), args], { cwd: __dirname, windowsHide: true });
@@ -178,6 +196,7 @@ app.post('/tapo/control', async (req, res) => {
 
 // ── FAIRY LIGHTS ──────────────────────────────────────────────
 function controlFairy(mac, payload) {
+  noteLightCommand();
   return new Promise((resolve, reject) => {
     const args = JSON.stringify({ mac, ...payload });
     const proc = spawn('python', [path.join(__dirname, 'fairy_helper.py'), args], { cwd: __dirname, windowsHide: true });
@@ -213,116 +232,115 @@ app.post('/fairy/control', async (req, res) => {
   }
 });
 
-// ── CAMERA 1 ──────────────────────────────────────────────────
-let cameraProc = null, latestFrame = null;
-const cameraClients = new Set();
+// ── CAMERAS ──────────────────────────────────────
+// A camera with no IP in .env is not started and not advertised to the
+// frontend, so an unplugged camera costs nothing and comes back by filling
+// its variable in again.
+const FFMPEG = process.env.FFMPEG_PATH || 'C:\\ffmpeg\\bin\\ffmpeg.exe';
+const CAMERA_RETRY_MIN_MS = 5000;
+const CAMERA_RETRY_MAX_MS = 60000;
 
-function startCamera() {
-  if (cameraProc) return;
-  const url = `rtsp://${process.env.CAMERA_USERNAME}:${process.env.CAMERA_PASSWORD}@${process.env.CAMERA_IP}:554/stream1`;
-  cameraProc = spawn('C:\\ffmpeg\\bin\\ffmpeg.exe', [
-    '-fflags', 'nobuffer', '-flags', 'low_delay',
-    '-rtsp_transport', 'tcp', '-i', url,
-    '-vf', 'scale=1280:720', '-f', 'mjpeg', '-q:v', '3', '-r', '25', '-'
-  ], { windowsHide: true });
+// Which camera drives the motion-wake detector. Defaults to the first
+// configured one, so it follows along if camera 1 is out.
+const MOTION_CAMERA_ID = parseInt(process.env.MOTION_CAMERA || '', 10);
 
-  let buf = Buffer.alloc(0);
-  cameraProc.stdout.on('data', chunk => {
-    buf = Buffer.concat([buf, chunk]);
-    while (true) {
-      let start = -1, end = -1;
-      for (let i = 0; i < buf.length - 1; i++) {
-        if (buf[i] === 0xFF && buf[i+1] === 0xD8) start = i;
-        if (start >= 0 && buf[i] === 0xFF && buf[i+1] === 0xD9) { end = i + 2; break; }
+function createCamera({ id, ip, path: streamPath }) {
+  const cam = {
+    id, ip, path: streamPath,
+    proc: null, latestFrame: null, clients: new Set(),
+    retryMs: CAMERA_RETRY_MIN_MS, driveMotion: false
+  };
+
+  cam.start = function start() {
+    if (cam.proc) return;
+    const url = `rtsp://${process.env.CAMERA_USERNAME}:${process.env.CAMERA_PASSWORD}@${ip}:554/stream1`;
+    cam.proc = spawn(FFMPEG, [
+      '-fflags', 'nobuffer', '-flags', 'low_delay',
+      '-rtsp_transport', 'tcp', '-i', url,
+      '-vf', 'scale=1280:720', '-f', 'mjpeg', '-q:v', '3', '-r', '25', '-'
+    ], { windowsHide: true });
+
+    let buf = Buffer.alloc(0);
+    cam.proc.stdout.on('data', chunk => {
+      buf = Buffer.concat([buf, chunk]);
+      while (true) {
+        let start = -1, end = -1;
+        for (let i = 0; i < buf.length - 1; i++) {
+          if (buf[i] === 0xFF && buf[i + 1] === 0xD8) start = i;
+          if (start >= 0 && buf[i] === 0xFF && buf[i + 1] === 0xD9) { end = i + 2; break; }
+        }
+        if (start >= 0 && end > start) {
+          cam.latestFrame = buf.slice(start, end);
+          buf = buf.slice(end);
+          cam.retryMs = CAMERA_RETRY_MIN_MS;   // a real frame means it is healthy again
+          if (cam.driveMotion) detectMotion(cam.latestFrame);
+          cam.clients.forEach(res => {
+            try {
+              res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${cam.latestFrame.length}\r\n\r\n`);
+              res.write(cam.latestFrame); res.write('\r\n');
+            } catch (e) { cam.clients.delete(res); }
+          });
+        } else break;
       }
-      if (start >= 0 && end > start) {
-        latestFrame = buf.slice(start, end);
-        buf = buf.slice(end);
-        detectMotion(latestFrame);
-        cameraClients.forEach(res => {
-          try {
-            res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${latestFrame.length}\r\n\r\n`);
-            res.write(latestFrame); res.write('\r\n');
-          } catch(e) { cameraClients.delete(res); }
-        });
-      } else break;
-    }
-  });
-  cameraProc.stderr.on('data', () => {});
-  cameraProc.on('close', () => { cameraProc = null; setTimeout(startCamera, 5000); });
+    });
+
+    cam.proc.stderr.on('data', () => {});
+    cam.proc.on('error', () => {});
+    cam.proc.on('close', () => {
+      cam.proc = null;
+      const wait = cam.retryMs;
+      // Back off instead of hammering a camera that is unplugged or dead.
+      cam.retryMs = Math.min(cam.retryMs * 2, CAMERA_RETRY_MAX_MS);
+      console.log(`Camera ${id} stream ended, retrying in ${wait / 1000}s`);
+      setTimeout(cam.start, wait);
+    });
+  };
+
+  return cam;
 }
 
-app.get('/camera/stream', (req, res) => {
-  res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  cameraClients.add(res);
-  if (latestFrame) {
-    res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${latestFrame.length}\r\n\r\n`);
-    res.write(latestFrame); res.write('\r\n');
-  }
-  req.on('close', () => cameraClients.delete(res));
-});
+const cameras = [
+  { id: 1, ip: process.env.CAMERA_IP,  path: '/camera/stream'  },
+  { id: 2, ip: process.env.CAMERA2_IP, path: '/camera2/stream' }
+].filter(c => c.ip && c.ip.trim()).map(createCamera);
 
-// ── CAMERA 2 ──────────────────────────────────────────────────
-let cameraProc2 = null, latestFrame2 = null;
-const cameraClients2 = new Set();
+// Pick the motion camera: the one named in .env if it is configured,
+// otherwise whichever camera we do have.
+const motionCam = cameras.find(c => c.id === MOTION_CAMERA_ID) || cameras[0];
+if (motionCam) motionCam.driveMotion = true;
 
-function startCamera2() {
-  if (cameraProc2) return;
-  const url = `rtsp://${process.env.CAMERA_USERNAME}:${process.env.CAMERA_PASSWORD}@${process.env.CAMERA2_IP}:554/stream1`;
-  cameraProc2 = spawn('C:\\ffmpeg\\bin\\ffmpeg.exe', [
-    '-fflags', 'nobuffer', '-flags', 'low_delay',
-    '-rtsp_transport', 'tcp', '-i', url,
-    '-vf', 'scale=1280:720', '-f', 'mjpeg', '-q:v', '3', '-r', '25', '-'
-  ], { windowsHide: true });
+// Tells the kiosk pages which camera tiles to render.
+app.get('/cameras', (req, res) =>
+  res.json(cameras.map(c => ({ id: c.id, path: c.path, motion: c.driveMotion })))
+);
 
-  let buf = Buffer.alloc(0);
-  cameraProc2.stdout.on('data', chunk => {
-    buf = Buffer.concat([buf, chunk]);
-    while (true) {
-      let start = -1, end = -1;
-      for (let i = 0; i < buf.length - 1; i++) {
-        if (buf[i] === 0xFF && buf[i+1] === 0xD8) start = i;
-        if (start >= 0 && buf[i] === 0xFF && buf[i+1] === 0xD9) { end = i + 2; break; }
-      }
-      if (start >= 0 && end > start) {
-        latestFrame2 = buf.slice(start, end);
-        buf = buf.slice(end);
-        cameraClients2.forEach(res => {
-          try {
-            res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${latestFrame2.length}\r\n\r\n`);
-            res.write(latestFrame2); res.write('\r\n');
-          } catch(e) { cameraClients2.delete(res); }
-        });
-      } else break;
+cameras.forEach(cam => {
+  app.get(cam.path, (req, res) => {
+    res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    cam.clients.add(res);
+    if (cam.latestFrame) {
+      res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${cam.latestFrame.length}\r\n\r\n`);
+      res.write(cam.latestFrame); res.write('\r\n');
     }
+    req.on('close', () => cam.clients.delete(res));
   });
-  cameraProc2.stderr.on('data', () => {});
-  cameraProc2.on('close', () => { cameraProc2 = null; setTimeout(startCamera2, 5000); });
-}
-
-app.get('/camera2/stream', (req, res) => {
-  res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  cameraClients2.add(res);
-  if (latestFrame2) {
-    res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${latestFrame2.length}\r\n\r\n`);
-    res.write(latestFrame2); res.write('\r\n');
-  }
-  req.on('close', () => cameraClients2.delete(res));
 });
 
 // ── PAGES ─────────────────────────────────────────────────────
 app.get('/lights', (req, res) => res.sendFile(path.join(__dirname, 'public', 'lights.html')));
 
 // ── START ─────────────────────────────────────────────────────
-startCamera();
-startCamera2();
+if (cameras.length === 0) console.log('No cameras configured (set CAMERA_IP / CAMERA2_IP in .env)');
+cameras.forEach(cam => {
+  console.log(`Camera ${cam.id} at ${cam.ip}${cam.driveMotion ? ' (drives motion wake)' : ''}`);
+  cam.start();
+});
 
 // ── DISCO PLUG ────────────────────────────────────────────────
 function controlPlug(payload) {
+  noteLightCommand();
   return new Promise((resolve, reject) => {
     const args = JSON.stringify(payload);
     const proc = spawn('python', [path.join(__dirname, 'plug_helper.py'), args], { cwd: __dirname, windowsHide: true });

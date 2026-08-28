@@ -263,7 +263,9 @@
 </div>
 
 <script>
-const SERVER = 'http://192.168.68.57:3000';
+// Served from the controller itself, so relative URLs work and keep
+// working if the server's LAN address ever changes.
+const SERVER = '';
 const FAIRY_MACS = ['FF:24:12:11:07:D6', 'FF:24:12:11:0D:C6'];
 let gamingTableBri = 40;
 const MUSIC_MODES = ['energy','rhythm','rolling','spectrum','rainbow'];

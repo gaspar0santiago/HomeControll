@@ -1,0 +1,5 @@
+# Python helpers spawned by server.js
+tapo            # Tapo bulbs / L920 strip over KLAP  (tapo_helper.py)
+bleak           # BLE transport for the fairy curtains (fairy_helper.py)
+tinytuya        # LAN control of the Arlec/Tuya plugs (plug_helper.py)
+python-dotenv   # loads .env for plug_helper.py

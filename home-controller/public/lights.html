@@ -18,6 +18,8 @@
     --cool: #87ceeb;
     --party: #c084fc;
     --gaming: #34d399;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur: 180ms;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -120,28 +122,169 @@
   .fx-btn { padding: 14px 6px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.22); background: #2e2e42; color: rgba(240,240,240,0.85); font-family: 'DM Mono', monospace; font-size: 12px; cursor: pointer; text-align: center; transition: all 0.15s; }
   .fx-btn:active { transform: scale(0.95); }
   .fx-btn.active { background: rgba(255,179,71,0.15); border-color: var(--warm); color: var(--warm); }
+
+  /* ── Icons ────────────────────────────────────────────────────
+     Replaces the emoji that used to sit in every label. Strokes
+     inherit currentColor so an icon picks up its button's colour,
+     including the per-scene active colours. */
+  .ico { width: 1.15em; height: 1.15em; flex: 0 0 auto;
+         stroke: currentColor; fill: none; stroke-width: 1.75;
+         stroke-linecap: round; stroke-linejoin: round; }
+  .ico .solid { fill: currentColor; stroke: none; }
+  .scene-btn .ico { width: 28px; height: 28px; stroke-width: 1.5; }
+  .brand .ico { width: 0.9em; height: 0.9em; stroke-width: 2; }
+  .panel-label .ico, .bri-label .ico, .fx-label .ico { width: 1.05em; height: 1.05em; }
+
+  /* Icon + text need to sit on a shared baseline. */
+  .zone-mode-btn, .bar-effect-btn, .fx-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  }
+  .panel-label, .bri-label, .fx-label, .brand { display: inline-flex; align-items: center; gap: 7px; }
+
+  /* ── Touch targets ────────────────────────────────────────────
+     Everything a finger lands on clears 44px. */
+  .zone-mode-btn, .bar-effect-btn { min-height: 44px; }
+
+  /* The slider is the important one. The input box used to be only as
+     tall as the visible track (4px), so the thumb overflowed it and the
+     real grab area was a 4px strip. The input is now 40px tall and
+     transparent, with the thin track drawn by the runnable-track
+     pseudo-element, so it looks the same and can actually be hit. */
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 44px; margin: 0;
+    background: transparent; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 8px; border-radius: calc(8px / 2); background: var(--surface2);
+  }
+  input[type=range]::-moz-range-track {
+    height: 8px; border-radius: calc(8px / 2); background: var(--surface2);
+  }
+  input[type=range].accent-thumb::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 32px; height: 32px; margin-top: -12px;
+    background: var(--accent); border-radius: 50%;
+    box-shadow: 0 0 8px rgba(200,255,0,0.4);
+    transition: transform var(--dur) var(--ease);
+  }
+  input[type=range].white-thumb::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 28px; height: 28px; margin-top: -10px;
+    background: var(--text); border-radius: 50%;
+    transition: transform var(--dur) var(--ease);
+  }
+  input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
+  input[type=range].accent-thumb::-moz-range-thumb {
+    width: 32px; height: 32px; background: var(--accent);
+    border: none; border-radius: 50%;
+  }
+  input[type=range].white-thumb::-moz-range-thumb {
+    width: 28px; height: 28px; background: var(--text);
+    border: none; border-radius: 50%;
+  }
+
+  /* ── Motion ───────────────────────────────────────────────────
+     Ease-out only, no bounce. Named properties, never `all`. */
+  .toggle { transition: background-color var(--dur) var(--ease),
+                        border-color var(--dur) var(--ease); }
+  .toggle::after { transition: transform var(--dur) var(--ease); }
+  .zone-card, .disco-zone { transition: border-color var(--dur) var(--ease),
+                                        box-shadow var(--dur) var(--ease); }
+  .zone-mode-btn, .bar-effect-btn, .fx-btn, .scene-btn {
+    transition: background-color var(--dur) var(--ease),
+                border-color var(--dur) var(--ease),
+                color var(--dur) var(--ease),
+                transform 90ms var(--ease);
+  }
+  .zone-mode-btn:active, .bar-effect-btn:active, .fx-btn:active { transform: scale(0.96); }
+  .zone-card.lit { box-shadow: 0 0 0 1px rgba(200,255,0,0.06), 0 6px 28px -14px rgba(200,255,0,0.4); }
+  .disco-zone.lit { box-shadow: 0 0 0 1px rgba(200,255,0,0.06), 0 6px 28px -14px rgba(200,255,0,0.4); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+
+  /* Hue slider: gradient moves from the input onto the track, so the
+     input itself can be a tall transparent hit area like the others. */
+  input[type=range].hue-slider { background: transparent; }
+  input[type=range].hue-slider::-webkit-slider-runnable-track {
+    height: 8px; border-radius: 4px;
+    background: linear-gradient(to right, hsl(0,90%,50%), hsl(40,90%,50%), hsl(80,90%,50%), hsl(120,90%,50%), hsl(160,90%,50%), hsl(200,90%,50%), hsl(240,90%,50%), hsl(280,90%,50%), hsl(320,90%,50%), hsl(360,90%,50%));
+  }
+  input[type=range].hue-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 28px; height: 28px; margin-top: -10px;
+    background: #fff; border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    transition: transform var(--dur) var(--ease);
+  }
+  /* 5 music buttons read better as 3+2 than 2+2+1, and it saves a row. */
+  .fx-grid { grid-template-columns: 1fr 1fr 1fr; }
+  .fx-btn { min-height: 44px; }
+
+  /* Slider rows got taller so the touch target is real; claw the page
+     height back out of card padding and gaps rather than the targets. */
+  .zone-card { padding: 18px; gap: 11px; }
+  .fairy-grid { gap: 14px; }
+  .individual-layout { gap: 12px; }
+  .zone-bri { gap: 12px; margin: -4px 0; }
+  .fx-grid { gap: 7px; }
+  .fx-btn { padding: 10px 6px; }
+  .panel-label { margin-bottom: 11px; }
+  /* Living Room has a fourth scene button; four across keeps it on one
+     row instead of orphaning Gaming underneath. */
+  .zone-card:has(.zone-mode-btn.gaming) .zone-modes { grid-template-columns: repeat(4, 1fr); }
+  .zone-card:has(.zone-mode-btn.gaming) .zone-mode-btn { font-size: 13px; gap: 5px; }
+  .zones-grid { align-items: start; }
 </style>
 </head>
 <body>
+<!-- Monochrome icon set. Every symbol inherits currentColor, so an icon
+     takes the colour of whatever button or label it sits in. -->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.3"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M10 2.8l1.7 4.7 4.7 1.7-4.7 1.7L10 15.6l-1.7-4.7L3.6 9.2l4.7-1.7z"/><path d="M17.6 14.4l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 21.2c3.2 0 5.8-2.4 5.8-5.5 0-3.7-3.4-5.9-4.5-9.7-1.2 1.4-1.9 2.7-1.9 4.3 0 1-.8 1.5-1.5 1-.9-.6-1.4-1.7-1.4-3.1C6.9 10.3 6.2 12.7 6.2 15.7c0 3.1 2.6 5.5 5.8 5.5z"/></symbol>
+  <symbol id="i-gamepad" viewBox="0 0 24 24"><path d="M8 8.6h8a4.4 4.4 0 0 1 4.3 5.3l-.7 3.3a2.5 2.5 0 0 1-4.2.7l-1.2-1.4H9.8l-1.2 1.4a2.5 2.5 0 0 1-4.2-.7l-.7-3.3A4.4 4.4 0 0 1 8 8.6z"/><path d="M7.1 12.2h2.6M8.4 10.9v2.6"/><circle class="solid" cx="15.4" cy="11.9" r=".95"/><circle class="solid" cx="17.4" cy="13.6" r=".95"/></symbol>
+  <symbol id="i-rainbow" viewBox="0 0 24 24"><path d="M2.8 18.5a9.2 9.2 0 0 1 18.4 0M6.4 18.5a5.6 5.6 0 0 1 11.2 0M10 18.5a2 2 0 0 1 4 0"/></symbol>
+  <symbol id="i-aurora" viewBox="0 0 24 24"><path d="M4.4 5.4c2 3.2-2 6.4 0 9.7M9.4 3.7c2 3.6-2 7.2 0 10.8M14.6 3.7c-2 3.6 2 7.2 0 10.8M19.6 5.4c-2 3.2 2 6.4 0 9.7M4 19.6h16"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2.4 9.4c1.6-2.1 3.3-2.1 4.9 0s3.3 2.1 4.9 0 3.3-2.1 4.9 0 3.3 2.1 4.9 0"/><path d="M2.4 15c1.6-2.1 3.3-2.1 4.9 0s3.3 2.1 4.9 0 3.3-2.1 4.9 0 3.3 2.1 4.9 0"/></symbol>
+  <symbol id="i-sunset" viewBox="0 0 24 24"><path d="M3.4 18.6h17.2M7.6 18.6a4.4 4.4 0 0 1 8.8 0"/><path d="M12 4.2v2.3M6.5 6.9l1.6 1.6M17.5 6.9l-1.6 1.6M2.8 13.2h2.2M19 13.2h2.2"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.6 2.4L5.4 13.6h5.3L10.4 21.6l8.2-11.2h-5.3z"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9.2 18.4h5.6M10.3 21.2h3.4"/><path d="M12 2.8a6 6 0 0 0-3.5 10.9c.6.5.9 1.1.9 1.8v.5h5.2v-.5c0-.7.3-1.3.9-1.8A6 6 0 0 0 12 2.8z"/></symbol>
+  <symbol id="i-spotlight" viewBox="0 0 24 24"><circle cx="12" cy="6.2" r="3.1"/><path d="M9.4 8l-4 12.4h13.2L14.6 8"/></symbol>
+  <symbol id="i-disco" viewBox="0 0 24 24"><path d="M12 2.4v3.1"/><circle cx="12" cy="13" r="7.2"/><path d="M4.8 13h14.4M12 5.8v14.4"/><path d="M12 5.8c-3.1 3.6-3.1 10.8 0 14.4M12 5.8c3.1 3.6 3.1 10.8 0 14.4"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.4 10.8L12 3.6l8.6 7.2"/><path d="M5.9 9.6V20h12.2V9.6"/></symbol>
+  <symbol id="i-square" viewBox="0 0 24 24"><rect x="5.2" y="5.2" width="13.6" height="13.6" rx="2.8"/></symbol>
+  <symbol id="i-dice" viewBox="0 0 24 24"><rect x="3.8" y="3.8" width="16.4" height="16.4" rx="3.2"/><circle class="solid" cx="8.6" cy="8.6" r="1.15"/><circle class="solid" cx="12" cy="12" r="1.15"/><circle class="solid" cx="15.4" cy="15.4" r="1.15"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9.4 17.6V5.6l9.8-2v12"/><circle cx="6.9" cy="17.6" r="2.5"/><circle cx="16.7" cy="15.6" r="2.5"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2.4 12h3.9l2.5-6.8 4 13.6 2.5-6.8h6.3"/></symbol>
+  <symbol id="i-equalizer" viewBox="0 0 24 24"><path d="M5.2 16.2V9.4M10.4 19V5M15.6 17V7.6M20.8 14.4v-3.6"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.4v8.4"/><path d="M7.3 6.6a7.5 7.5 0 1 0 9.4 0"/></symbol>
+</svg>
+
 
 <header>
-  <div class="brand">&#8962; Lights</div>
+  <div class="brand"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg>Lights</div>
   <div class="clock" id="clock">00:00</div>
 </header>
 
 <div>
   <div class="panel-label">All Zones</div>
   <div class="global-scenes">
-    <button class="scene-btn work-scene" id="global-work" onclick="globalScene('work')"><span class="icon">&#9728;</span>Work</button>
-    <button class="scene-btn party-scene" id="global-party" onclick="globalScene('party')"><span class="icon">&#10024;</span>Party</button>
-    <button class="scene-btn cosy-scene" id="global-cosy" onclick="globalScene('cosy')"><span class="icon">&#127777;</span>Cosy</button>
-    <button class="scene-btn gaming-scene" id="global-gaming" onclick="globalScene('gaming')"><span class="icon">&#127918;</span>Gaming</button>
+    <button class="scene-btn work-scene" id="global-work" onclick="globalScene('work')"><span class="icon"><svg class="ico" aria-hidden="true"><use href="#i-sun"/></svg></span>Work</button>
+    <button class="scene-btn party-scene" id="global-party" onclick="globalScene('party')"><span class="icon"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span>Party</button>
+    <button class="scene-btn cosy-scene" id="global-cosy" onclick="globalScene('cosy')"><span class="icon"><svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg></span>Cosy</button>
+    <button class="scene-btn gaming-scene" id="global-gaming" onclick="globalScene('gaming')"><span class="icon"><svg class="ico" aria-hidden="true"><use href="#i-gamepad"/></svg></span>Gaming</button>
   </div>
 </div>
 
 <div class="global-brightness">
   <div class="bri-header">
-    <span class="bri-label">&#9788; All Brightness</span>
+    <span class="bri-label"><svg class="ico" aria-hidden="true"><use href="#i-sun"/></svg>All Brightness</span>
     <span class="bri-val" id="global-bri-val">80%</span>
   </div>
   <input type="range" class="accent-thumb" min="1" max="100" value="80" id="global-bri-slider"
@@ -157,17 +300,17 @@
     <div class="bottom-row">
       <div class="bar-container" id="bar-container"></div>
       <div class="disco-zone" id="spotlight2-card">
-        <div class="disco-emoji" style="display:inline-block;transform:rotate(180deg);">&#128294;</div>
+        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-spotlight"/></svg></div>
         <div class="zone-name">Spotlight 1</div>
         <div class="toggle" id="spotlight2-toggle" onclick="toggleSpotlight2()"></div>
       </div>
       <div class="disco-zone" id="disco-card">
-        <div class="disco-emoji">&#129705;</div>
+        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-disco"/></svg></div>
         <div class="zone-name">Disco Ball</div>
         <div class="toggle" id="disco-toggle" onclick="toggleDisco()"></div>
       </div>
       <div class="disco-zone" id="spotlight-card">
-        <div class="disco-emoji" style="display:inline-block;transform:rotate(-90deg);">&#128294;</div>
+        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-spotlight"/></svg></div>
         <div class="zone-name">Spotlight 2</div>
         <div class="toggle" id="spotlight-toggle" onclick="toggleSpotlight()"></div>
       </div>
@@ -178,7 +321,7 @@
 <div class="divider"></div>
 
 <div>
-  <div class="panel-label">&#10024; Fairy Lights</div>
+  <div class="panel-label"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>Fairy Lights</div>
   <div class="fairy-grid">
 
     <!-- Left curtain -->
@@ -188,9 +331,9 @@
         <div class="toggle" id="fairy-toggle-1" onclick="toggleFairy('FF:24:12:11:07:D6',1)"></div>
       </div>
       <div class="zone-modes">
-        <button class="zone-mode-btn work" onclick="setFairy('FF:24:12:11:07:D6',1,0,0,90,true)">&#11036; White</button>
-        <button class="zone-mode-btn cosy" onclick="setFairy('FF:24:12:11:07:D6',1,20,100,70)">&#127778; Warm</button>
-        <button class="zone-mode-btn party" onclick="setFairy('FF:24:12:11:07:D6',1,Math.floor(Math.random()*360),90,80)">&#127922; Random</button>
+        <button class="zone-mode-btn work" onclick="setFairy('FF:24:12:11:07:D6',1,0,0,90,true)"><svg class="ico" aria-hidden="true"><use href="#i-square"/></svg>White</button>
+        <button class="zone-mode-btn cosy" onclick="setFairy('FF:24:12:11:07:D6',1,20,100,70)"><svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg>Warm</button>
+        <button class="zone-mode-btn party" onclick="setFairy('FF:24:12:11:07:D6',1,Math.floor(Math.random()*360),90,80)"><svg class="ico" aria-hidden="true"><use href="#i-dice"/></svg>Random</button>
       </div>
       <div class="zone-bri">
         <span class="zone-bri-label">Hue</span>
@@ -203,13 +346,13 @@
           oninput="onFairyBriInput(1,this.value)" onchange="setFairyFromSliders('FF:24:12:11:07:D6',1)">
         <span class="zone-bri-val" id="fairy-bri-val-1">80%</span>
       </div>
-      <div class="fx-label">&#9835; Music Mode</div>
+      <div class="fx-label"><svg class="ico" aria-hidden="true"><use href="#i-music"/></svg>Music Mode</div>
       <div class="fx-grid">
-        <button class="fx-btn" id="fm-1-energy"   onclick="setFairyMusic('FF:24:12:11:07:D6',1,'energy')">&#9889; Energy</button>
-        <button class="fx-btn" id="fm-1-rhythm"   onclick="setFairyMusic('FF:24:12:11:07:D6',1,'rhythm')">&#127941; Rhythm</button>
-        <button class="fx-btn" id="fm-1-rolling"  onclick="setFairyMusic('FF:24:12:11:07:D6',1,'rolling')">&#127754; Rolling</button>
-        <button class="fx-btn" id="fm-1-spectrum" onclick="setFairyMusic('FF:24:12:11:07:D6',1,'spectrum')">&#127752; Spectrum</button>
-        <button class="fx-btn" id="fm-1-rainbow"  onclick="setFairyMusic('FF:24:12:11:07:D6',1,'rainbow')">&#127775; Rainbow</button>
+        <button class="fx-btn" id="fm-1-energy"   onclick="setFairyMusic('FF:24:12:11:07:D6',1,'energy')"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg>Energy</button>
+        <button class="fx-btn" id="fm-1-rhythm"   onclick="setFairyMusic('FF:24:12:11:07:D6',1,'rhythm')"><svg class="ico" aria-hidden="true"><use href="#i-pulse"/></svg>Rhythm</button>
+        <button class="fx-btn" id="fm-1-rolling"  onclick="setFairyMusic('FF:24:12:11:07:D6',1,'rolling')"><svg class="ico" aria-hidden="true"><use href="#i-wave"/></svg>Rolling</button>
+        <button class="fx-btn" id="fm-1-spectrum" onclick="setFairyMusic('FF:24:12:11:07:D6',1,'spectrum')"><svg class="ico" aria-hidden="true"><use href="#i-equalizer"/></svg>Spectrum</button>
+        <button class="fx-btn" id="fm-1-rainbow"  onclick="setFairyMusic('FF:24:12:11:07:D6',1,'rainbow')"><svg class="ico" aria-hidden="true"><use href="#i-rainbow"/></svg>Rainbow</button>
       </div>
       <div class="zone-bri">
         <span class="zone-bri-label">Mic</span>
@@ -227,9 +370,9 @@
         <div class="toggle" id="fairy-toggle-2" onclick="toggleFairy('FF:24:12:11:0D:C6',2)"></div>
       </div>
       <div class="zone-modes">
-        <button class="zone-mode-btn work" onclick="setFairy('FF:24:12:11:0D:C6',2,0,0,90,true)">&#11036; White</button>
-        <button class="zone-mode-btn cosy" onclick="setFairy('FF:24:12:11:0D:C6',2,20,100,70)">&#127778; Warm</button>
-        <button class="zone-mode-btn party" onclick="setFairy('FF:24:12:11:0D:C6',2,Math.floor(Math.random()*360),90,80)">&#127922; Random</button>
+        <button class="zone-mode-btn work" onclick="setFairy('FF:24:12:11:0D:C6',2,0,0,90,true)"><svg class="ico" aria-hidden="true"><use href="#i-square"/></svg>White</button>
+        <button class="zone-mode-btn cosy" onclick="setFairy('FF:24:12:11:0D:C6',2,20,100,70)"><svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg>Warm</button>
+        <button class="zone-mode-btn party" onclick="setFairy('FF:24:12:11:0D:C6',2,Math.floor(Math.random()*360),90,80)"><svg class="ico" aria-hidden="true"><use href="#i-dice"/></svg>Random</button>
       </div>
       <div class="zone-bri">
         <span class="zone-bri-label">Hue</span>
@@ -242,13 +385,13 @@
           oninput="onFairyBriInput(2,this.value)" onchange="setFairyFromSliders('FF:24:12:11:0D:C6',2)">
         <span class="zone-bri-val" id="fairy-bri-val-2">80%</span>
       </div>
-      <div class="fx-label">&#9835; Music Mode</div>
+      <div class="fx-label"><svg class="ico" aria-hidden="true"><use href="#i-music"/></svg>Music Mode</div>
       <div class="fx-grid">
-        <button class="fx-btn" id="fm-2-energy"   onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'energy')">&#9889; Energy</button>
-        <button class="fx-btn" id="fm-2-rhythm"   onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'rhythm')">&#127941; Rhythm</button>
-        <button class="fx-btn" id="fm-2-rolling"  onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'rolling')">&#127754; Rolling</button>
-        <button class="fx-btn" id="fm-2-spectrum" onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'spectrum')">&#127752; Spectrum</button>
-        <button class="fx-btn" id="fm-2-rainbow"  onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'rainbow')">&#127775; Rainbow</button>
+        <button class="fx-btn" id="fm-2-energy"   onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'energy')"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg>Energy</button>
+        <button class="fx-btn" id="fm-2-rhythm"   onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'rhythm')"><svg class="ico" aria-hidden="true"><use href="#i-pulse"/></svg>Rhythm</button>
+        <button class="fx-btn" id="fm-2-rolling"  onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'rolling')"><svg class="ico" aria-hidden="true"><use href="#i-wave"/></svg>Rolling</button>
+        <button class="fx-btn" id="fm-2-spectrum" onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'spectrum')"><svg class="ico" aria-hidden="true"><use href="#i-equalizer"/></svg>Spectrum</button>
+        <button class="fx-btn" id="fm-2-rainbow"  onclick="setFairyMusic('FF:24:12:11:0D:C6',2,'rainbow')"><svg class="ico" aria-hidden="true"><use href="#i-rainbow"/></svg>Rainbow</button>
       </div>
       <div class="zone-bri">
         <span class="zone-bri-label">Mic</span>
@@ -302,12 +445,12 @@ ZONES.forEach(zone => {
         <div class="toggle" id="toggle-${key}" onclick="toggleZone('${zone.name}')"></div>
       </div>
       <div class="bar-effects">
-        <button class="bar-effect-btn" id="bfx-${key}-rainbow"   onclick="setBarEffect('${zone.name}','rainbow')">&#127752; Rainbow</button>
-        <button class="bar-effect-btn" id="bfx-${key}-aurora"    onclick="setBarEffect('${zone.name}','aurora')">&#127756; Aurora</button>
-        <button class="bar-effect-btn" id="bfx-${key}-ocean"     onclick="setBarEffect('${zone.name}','ocean')">&#127754; Ocean</button>
-        <button class="bar-effect-btn" id="bfx-${key}-sunset"    onclick="setBarEffect('${zone.name}','sunset')">&#127755; Sunset</button>
-        <button class="bar-effect-btn" id="bfx-${key}-lightning" onclick="setBarEffect('${zone.name}','lightning')">&#9889; Lightning</button>
-        <button class="bar-effect-btn" id="bfx-${key}-flicker"   onclick="setBarEffect('${zone.name}','flicker')">&#128167; Flicker</button>
+        <button class="bar-effect-btn" id="bfx-${key}-rainbow"   onclick="setBarEffect('${zone.name}','rainbow')"><svg class="ico" aria-hidden="true"><use href="#i-rainbow"/></svg>Rainbow</button>
+        <button class="bar-effect-btn" id="bfx-${key}-aurora"    onclick="setBarEffect('${zone.name}','aurora')"><svg class="ico" aria-hidden="true"><use href="#i-aurora"/></svg>Aurora</button>
+        <button class="bar-effect-btn" id="bfx-${key}-ocean"     onclick="setBarEffect('${zone.name}','ocean')"><svg class="ico" aria-hidden="true"><use href="#i-wave"/></svg>Ocean</button>
+        <button class="bar-effect-btn" id="bfx-${key}-sunset"    onclick="setBarEffect('${zone.name}','sunset')"><svg class="ico" aria-hidden="true"><use href="#i-sunset"/></svg>Sunset</button>
+        <button class="bar-effect-btn" id="bfx-${key}-lightning" onclick="setBarEffect('${zone.name}','lightning')"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg>Lightning</button>
+        <button class="bar-effect-btn" id="bfx-${key}-flicker"   onclick="setBarEffect('${zone.name}','flicker')"><svg class="ico" aria-hidden="true"><use href="#i-bulb"/></svg>Flicker</button>
       </div>`;
   } else {
     card.innerHTML = `
@@ -316,10 +459,10 @@ ZONES.forEach(zone => {
         <div class="toggle" id="toggle-${key}" onclick="toggleZone('${zone.name}')"></div>
       </div>
       <div class="zone-modes">
-        <button class="zone-mode-btn work" id="mode-${key}-work" onclick="setZoneScene('${zone.name}','work')">&#9728; Work</button>
-        <button class="zone-mode-btn party" id="mode-${key}-party" onclick="setZoneScene('${zone.name}','party')">&#10024; Party</button>
-        <button class="zone-mode-btn cosy" id="mode-${key}-cosy" onclick="setZoneScene('${zone.name}','cosy')">&#127777; Cosy</button>
-        ${zone.name === 'Living Room' ? `<button class="zone-mode-btn gaming" id="mode-${key}-gaming" onclick="setZoneScene('${zone.name}','gaming')">&#127918; Gaming</button>` : ''}
+        <button class="zone-mode-btn work" id="mode-${key}-work" onclick="setZoneScene('${zone.name}','work')"><svg class="ico" aria-hidden="true"><use href="#i-sun"/></svg>Work</button>
+        <button class="zone-mode-btn party" id="mode-${key}-party" onclick="setZoneScene('${zone.name}','party')"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>Party</button>
+        <button class="zone-mode-btn cosy" id="mode-${key}-cosy" onclick="setZoneScene('${zone.name}','cosy')"><svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg>Cosy</button>
+        ${zone.name === 'Living Room' ? `<button class="zone-mode-btn gaming" id="mode-${key}-gaming" onclick="setZoneScene('${zone.name}','gaming')"><svg class="ico" aria-hidden="true"><use href="#i-gamepad"/></svg>Gaming</button>` : ''}
       </div>
       <div class="zone-bri">
         <span class="zone-bri-label">Bri</span>

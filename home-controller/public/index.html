@@ -18,6 +18,8 @@
     --cool: #87ceeb;
     --party: #c084fc;
     --gaming: #34d399;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --dur: 180ms;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -165,12 +167,188 @@
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Icons ────────────────────────────────────────────────────
+     Replaces the emoji that used to sit in every label. Strokes
+     inherit currentColor so an icon picks up its button's colour,
+     including the per-scene active colours. */
+  .ico { width: 1.15em; height: 1.15em; flex: 0 0 auto;
+         stroke: currentColor; fill: none; stroke-width: 1.75;
+         stroke-linecap: round; stroke-linejoin: round; }
+  .ico .solid { fill: currentColor; stroke: none; }
+  .scene-btn .ico { width: 28px; height: 28px; stroke-width: 1.5; }
+  .brand .ico { width: 0.9em; height: 0.9em; stroke-width: 2; }
+  .panel-label .ico, .bri-label .ico, .fx-label .ico { width: 1.05em; height: 1.05em; }
+
+  /* Icon + text need to sit on a shared baseline. */
+  .zone-mode-btn, .bar-effect-btn, .fx-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  }
+  .panel-label, .bri-label, .fx-label, .brand { display: inline-flex; align-items: center; gap: 7px; }
+
+  /* ── Touch targets ────────────────────────────────────────────
+     Everything a finger lands on clears 44px. */
+  .zone-mode-btn, .bar-effect-btn { min-height: 44px; }
+
+  /* The slider is the important one. The input box used to be only as
+     tall as the visible track (4px), so the thumb overflowed it and the
+     real grab area was a 4px strip. The input is now 40px tall and
+     transparent, with the thin track drawn by the runnable-track
+     pseudo-element, so it looks the same and can actually be hit. */
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 44px; margin: 0;
+    background: transparent; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 4px; border-radius: calc(4px / 2); background: var(--surface2);
+  }
+  input[type=range]::-moz-range-track {
+    height: 4px; border-radius: calc(4px / 2); background: var(--surface2);
+  }
+  input[type=range].accent-thumb::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 22px; height: 22px; margin-top: -9px;
+    background: var(--accent); border-radius: 50%;
+    box-shadow: 0 0 8px rgba(200,255,0,0.4);
+    transition: transform var(--dur) var(--ease);
+  }
+  input[type=range].white-thumb::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 20px; height: 20px; margin-top: -8px;
+    background: var(--text); border-radius: 50%;
+    transition: transform var(--dur) var(--ease);
+  }
+  input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
+  input[type=range].accent-thumb::-moz-range-thumb {
+    width: 22px; height: 22px; background: var(--accent);
+    border: none; border-radius: 50%;
+  }
+  input[type=range].white-thumb::-moz-range-thumb {
+    width: 20px; height: 20px; background: var(--text);
+    border: none; border-radius: 50%;
+  }
+
+  /* ── Motion ───────────────────────────────────────────────────
+     Ease-out only, no bounce. Named properties, never `all`. */
+  .toggle { transition: background-color var(--dur) var(--ease),
+                        border-color var(--dur) var(--ease); }
+  .toggle::after { transition: transform var(--dur) var(--ease); }
+  .zone-card, .disco-zone { transition: border-color var(--dur) var(--ease),
+                                        box-shadow var(--dur) var(--ease); }
+  .zone-mode-btn, .bar-effect-btn, .fx-btn, .scene-btn {
+    transition: background-color var(--dur) var(--ease),
+                border-color var(--dur) var(--ease),
+                color var(--dur) var(--ease),
+                transform 90ms var(--ease);
+  }
+  .zone-mode-btn:active, .bar-effect-btn:active, .fx-btn:active { transform: scale(0.96); }
+  .zone-card.lit { box-shadow: 0 0 0 1px rgba(200,255,0,0.06), 0 6px 28px -14px rgba(200,255,0,0.4); }
+  .disco-zone.lit { box-shadow: 0 0 0 1px rgba(200,255,0,0.06), 0 6px 28px -14px rgba(200,255,0,0.4); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+
+  /* ── Lower panel ──────────────────────────────────────────────
+     Adapts to how many cameras are configured: two feeds side by
+     side, or one feed plus the utility controls, or controls only. */
+  .lower-panel {
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 14px 32px 16px; height: 340px;
+    display: flex; align-items: stretch; gap: 28px;
+  }
+  .camera-panel { display: flex; align-items: center; justify-content: center;
+                  gap: 18px; flex: 0 0 auto; }
+  /* Always present: two cameras still leave ~950px, so these controls
+     never disappear when camera 1 comes back. */
+  .utility-panel { display: flex; flex-direction: row; align-items: center;
+                   justify-content: center; gap: 30px; flex: 1 1 auto; min-width: 0; }
+  .lower-panel.cams-0 .camera-panel { display: none; }
+  /* Explicit box: an aspect-ratio element gives flexbox no width to
+     resolve, so the panel collapsed to the width of its label. */
+  .cam-block { height: auto; min-height: 0; justify-content: center; }
+  .cam-wrap { flex: 0 0 auto; width: 432px; height: 243px; aspect-ratio: auto; }
+  /* With one camera the row has ~1300px spare, so the utility controls
+     lay out across it instead of stacking in a narrow column. */
+  .util-group { flex: 1 1 0; min-width: 0; }
+  .util-group:first-child { flex: 2.2 1 0; }
+
+  .util-group { display: flex; flex-direction: column; gap: 9px; }
+  .util-label { font-family: 'Syne', sans-serif; font-size: 10px; letter-spacing: 0.15em;
+                color: var(--muted); text-transform: uppercase;
+                display: flex; align-items: center; gap: 7px; }
+  .util-row { display: flex; gap: 9px; }
+  .util-btn {
+    flex: 1 1 0; min-height: 48px; padding: 10px 8px;
+    border-radius: 12px; border: 1px solid rgba(255,255,255,0.22);
+    background: #2e2e42; color: rgba(240,240,240,0.85);
+    font-family: 'DM Mono', monospace; font-size: 13px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    transition: background-color var(--dur) var(--ease),
+                border-color var(--dur) var(--ease),
+                color var(--dur) var(--ease),
+                transform 90ms var(--ease);
+  }
+  .util-btn:active { transform: scale(0.96); }
+  .util-btn.active { background: rgba(200,255,0,0.15); border-color: var(--accent); color: var(--accent); }
+  .util-wide { width: 100%; }
+
+  /* Lower panel trimmed to pay for the taller touch targets above, and
+     the camera now fills whatever height is left rather than being
+     pinned to 315px (which used to overflow its own panel). */
+  .lower-panel { height: 318px; }
+
+  /* .camera-panel keeps its original rule for the two-camera case, but
+     inside .lower-panel the frame properties belong to the parent. */
+  .camera-panel { background: none; border-top: 0; padding: 0; height: auto; }
+
+  /* body is a 100vh grid and .lights-panel scrolls internally, so the
+     taller touch targets have to be paid for out of spacing, not left
+     to push the bar and plug row out of view. */
+  .lights-panel { padding: 14px 32px 8px; gap: 10px; }
+  .scene-btn { padding: 14px 10px; gap: 6px; }
+  .global-brightness { padding: 10px 16px; }
+  .lower-panel { height: 300px; }
+  /* Living Room has a fourth scene button; four across keeps it on one
+     row instead of orphaning Gaming underneath. */
+  .zone-card:has(.zone-mode-btn.gaming) .zone-modes { grid-template-columns: repeat(4, 1fr); }
+  .zone-card:has(.zone-mode-btn.gaming) .zone-mode-btn { font-size: 12px; gap: 5px; }
+  /* Cards size to their own content instead of stretching to the tallest. */
+  .zones-grid { align-items: start; }
 </style>
 </head>
 <body>
+<!-- Monochrome icon set. Every symbol inherits currentColor, so an icon
+     takes the colour of whatever button or label it sits in. -->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.3"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M10 2.8l1.7 4.7 4.7 1.7-4.7 1.7L10 15.6l-1.7-4.7L3.6 9.2l4.7-1.7z"/><path d="M17.6 14.4l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9z"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 21.2c3.2 0 5.8-2.4 5.8-5.5 0-3.7-3.4-5.9-4.5-9.7-1.2 1.4-1.9 2.7-1.9 4.3 0 1-.8 1.5-1.5 1-.9-.6-1.4-1.7-1.4-3.1C6.9 10.3 6.2 12.7 6.2 15.7c0 3.1 2.6 5.5 5.8 5.5z"/></symbol>
+  <symbol id="i-gamepad" viewBox="0 0 24 24"><path d="M8 8.6h8a4.4 4.4 0 0 1 4.3 5.3l-.7 3.3a2.5 2.5 0 0 1-4.2.7l-1.2-1.4H9.8l-1.2 1.4a2.5 2.5 0 0 1-4.2-.7l-.7-3.3A4.4 4.4 0 0 1 8 8.6z"/><path d="M7.1 12.2h2.6M8.4 10.9v2.6"/><circle class="solid" cx="15.4" cy="11.9" r=".95"/><circle class="solid" cx="17.4" cy="13.6" r=".95"/></symbol>
+  <symbol id="i-rainbow" viewBox="0 0 24 24"><path d="M2.8 18.5a9.2 9.2 0 0 1 18.4 0M6.4 18.5a5.6 5.6 0 0 1 11.2 0M10 18.5a2 2 0 0 1 4 0"/></symbol>
+  <symbol id="i-aurora" viewBox="0 0 24 24"><path d="M4.4 5.4c2 3.2-2 6.4 0 9.7M9.4 3.7c2 3.6-2 7.2 0 10.8M14.6 3.7c-2 3.6 2 7.2 0 10.8M19.6 5.4c-2 3.2 2 6.4 0 9.7M4 19.6h16"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2.4 9.4c1.6-2.1 3.3-2.1 4.9 0s3.3 2.1 4.9 0 3.3-2.1 4.9 0 3.3 2.1 4.9 0"/><path d="M2.4 15c1.6-2.1 3.3-2.1 4.9 0s3.3 2.1 4.9 0 3.3-2.1 4.9 0 3.3 2.1 4.9 0"/></symbol>
+  <symbol id="i-sunset" viewBox="0 0 24 24"><path d="M3.4 18.6h17.2M7.6 18.6a4.4 4.4 0 0 1 8.8 0"/><path d="M12 4.2v2.3M6.5 6.9l1.6 1.6M17.5 6.9l-1.6 1.6M2.8 13.2h2.2M19 13.2h2.2"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.6 2.4L5.4 13.6h5.3L10.4 21.6l8.2-11.2h-5.3z"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9.2 18.4h5.6M10.3 21.2h3.4"/><path d="M12 2.8a6 6 0 0 0-3.5 10.9c.6.5.9 1.1.9 1.8v.5h5.2v-.5c0-.7.3-1.3.9-1.8A6 6 0 0 0 12 2.8z"/></symbol>
+  <symbol id="i-spotlight" viewBox="0 0 24 24"><circle cx="12" cy="6.2" r="3.1"/><path d="M9.4 8l-4 12.4h13.2L14.6 8"/></symbol>
+  <symbol id="i-disco" viewBox="0 0 24 24"><path d="M12 2.4v3.1"/><circle cx="12" cy="13" r="7.2"/><path d="M4.8 13h14.4M12 5.8v14.4"/><path d="M12 5.8c-3.1 3.6-3.1 10.8 0 14.4M12 5.8c3.1 3.6 3.1 10.8 0 14.4"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.4 10.8L12 3.6l8.6 7.2"/><path d="M5.9 9.6V20h12.2V9.6"/></symbol>
+  <symbol id="i-square" viewBox="0 0 24 24"><rect x="5.2" y="5.2" width="13.6" height="13.6" rx="2.8"/></symbol>
+  <symbol id="i-dice" viewBox="0 0 24 24"><rect x="3.8" y="3.8" width="16.4" height="16.4" rx="3.2"/><circle class="solid" cx="8.6" cy="8.6" r="1.15"/><circle class="solid" cx="12" cy="12" r="1.15"/><circle class="solid" cx="15.4" cy="15.4" r="1.15"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9.4 17.6V5.6l9.8-2v12"/><circle cx="6.9" cy="17.6" r="2.5"/><circle cx="16.7" cy="15.6" r="2.5"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2.4 12h3.9l2.5-6.8 4 13.6 2.5-6.8h6.3"/></symbol>
+  <symbol id="i-equalizer" viewBox="0 0 24 24"><path d="M5.2 16.2V9.4M10.4 19V5M15.6 17V7.6M20.8 14.4v-3.6"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.4v8.4"/><path d="M7.3 6.6a7.5 7.5 0 1 0 9.4 0"/></symbol>
+</svg>
+
 
 <header>
-  <div class="brand">&#8962; Home</div>
+  <div class="brand"><svg class="ico" aria-hidden="true"><use href="#i-home"/></svg>Home</div>
   <div class="clock" id="clock">00:00</div>
   <div class="header-right">
     <div class="date-str" id="datestr"></div>
@@ -184,14 +362,14 @@
 <div class="lights-panel">
   <div class="panel-label">All Zones</div>
   <div class="global-scenes">
-    <button class="scene-btn work-scene" id="global-work" onclick="globalScene('work')"><span class="icon">&#9728;</span>Work</button>
-    <button class="scene-btn party-scene" id="global-party" onclick="globalScene('party')"><span class="icon">&#10024;</span>Party</button>
-    <button class="scene-btn cosy-scene" id="global-cosy" onclick="globalScene('cosy')"><span class="icon">&#127777;</span>Cosy</button>
-    <button class="scene-btn gaming-scene" id="global-gaming" onclick="globalScene('gaming')"><span class="icon">&#127918;</span>Gaming</button>
+    <button class="scene-btn work-scene" id="global-work" onclick="globalScene('work')"><span class="icon"><svg class="ico" aria-hidden="true"><use href="#i-sun"/></svg></span>Work</button>
+    <button class="scene-btn party-scene" id="global-party" onclick="globalScene('party')"><span class="icon"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg></span>Party</button>
+    <button class="scene-btn cosy-scene" id="global-cosy" onclick="globalScene('cosy')"><span class="icon"><svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg></span>Cosy</button>
+    <button class="scene-btn gaming-scene" id="global-gaming" onclick="globalScene('gaming')"><span class="icon"><svg class="ico" aria-hidden="true"><use href="#i-gamepad"/></svg></span>Gaming</button>
   </div>
   <div class="global-brightness">
     <div class="bri-header">
-      <span class="bri-label">&#9788; All Brightness</span>
+      <span class="bri-label"><svg class="ico" aria-hidden="true"><use href="#i-sun"/></svg>All Brightness</span>
       <span class="bri-val" id="global-bri-val">80%</span>
     </div>
     <input type="range" class="accent-thumb" min="1" max="100" value="80" id="global-bri-slider"
@@ -204,17 +382,17 @@
     <div class="bottom-row">
       <div class="bar-container" id="bar-container"></div>
       <div class="disco-zone" id="spotlight2-card">
-        <div class="disco-emoji" style="display:inline-block;transform:rotate(180deg);">&#128294;</div>
+        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-spotlight"/></svg></div>
         <div class="zone-name">Spotlight 1</div>
         <div class="toggle" id="spotlight2-toggle" onclick="toggleSpotlight2()"></div>
       </div>
       <div class="disco-zone" id="disco-card">
-        <div class="disco-emoji">&#129705;</div>
+        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-disco"/></svg></div>
         <div class="zone-name">Disco Ball</div>
         <div class="toggle" id="disco-toggle" onclick="toggleDisco()"></div>
       </div>
       <div class="disco-zone" id="spotlight-card">
-        <div class="disco-emoji" style="display:inline-block;transform:rotate(-90deg);">&#128294;</div>
+        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-spotlight"/></svg></div>
         <div class="zone-name">Spotlight 2</div>
         <div class="toggle" id="spotlight-toggle" onclick="toggleSpotlight()"></div>
       </div>
@@ -222,9 +400,30 @@
   </div>
 </div>
 
-<!-- Tiles are built from /cameras, so a camera that is unplugged and
-     cleared from .env simply does not appear. -->
-<div class="camera-panel" id="camera-panel" style="display:none"></div>
+<!-- Camera tiles are built from /cameras, so a camera that is unplugged
+     and cleared from .env simply does not appear. The utility panel takes
+     over the space that frees up. -->
+<div class="lower-panel" id="lower-panel">
+  <div class="camera-panel" id="camera-panel"></div>
+  <aside class="utility-panel" id="utility-panel">
+    <div class="util-group">
+      <div class="util-label"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>Fairy Lights</div>
+      <div class="util-row">
+        <button class="util-btn" id="fq-0" onclick="toggleFairyQuick(0)">Fairy 1</button>
+        <button class="util-btn" id="fq-1" onclick="toggleFairyQuick(1)">Fairy 2</button>
+      </div>
+      <div class="util-row">
+        <button class="util-btn" onclick="fairyPreset('white')"><svg class="ico" aria-hidden="true"><use href="#i-square"/></svg>White</button>
+        <button class="util-btn" onclick="fairyPreset('warm')"><svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg>Warm</button>
+        <button class="util-btn" onclick="fairyPreset('random')"><svg class="ico" aria-hidden="true"><use href="#i-dice"/></svg>Random</button>
+      </div>
+    </div>
+    <div class="util-group">
+      <div class="util-label"><svg class="ico" aria-hidden="true"><use href="#i-power"/></svg>Displays</div>
+      <button class="util-btn util-wide" onclick="screensOff()">Turn screens off</button>
+    </div>
+  </aside>
+</div>
 
 <script>
 const FAIRY_MACS = ['FF:24:12:11:07:D6', 'FF:24:12:11:0D:C6'];
@@ -247,10 +446,13 @@ function reconnectCam(id, src) {
 
 async function buildCameras() {
   const panel = document.getElementById('camera-panel');
+  const lower = document.getElementById('lower-panel');
   let cams = [];
   try { cams = await (await fetch('/cameras')).json(); } catch (e) {}
   panel.innerHTML = '';
-  if (!cams.length) { panel.style.display = 'none'; return; }
+  lower.classList.remove('cams-0', 'cams-1', 'cams-2');
+  lower.classList.add('cams-' + Math.min(cams.length, 2));
+  if (!cams.length) return;
   cams.forEach(cam => {
     const imgId = 'cam-feed-' + cam.id;
     const block = document.createElement('div');
@@ -262,9 +464,36 @@ async function buildCameras() {
       </div>`;
     panel.appendChild(block);
   });
-  panel.style.display = 'flex';
 }
 buildCameras();
+
+// ── FAIRY QUICK CONTROLS ──────────────────────────────────────
+// The detailed per-curtain controls live on the second screen; this
+// screen just needs on/off and the three presets.
+const fairyQuickOn = [false, false];
+
+function setFairyQuickUI(i, on) {
+  fairyQuickOn[i] = on;
+  document.getElementById('fq-' + i)?.classList.toggle('active', on);
+}
+
+function toggleFairyQuick(i) {
+  setFairyQuickUI(i, !fairyQuickOn[i]);
+  sendFairy(FAIRY_MACS[i], { on: fairyQuickOn[i] });
+}
+
+function fairyPreset(kind) {
+  FAIRY_MACS.forEach((mac, i) => {
+    setFairyQuickUI(i, true);
+    if (kind === 'white')     sendFairy(mac, { on: true, white: true, brightness: 90 });
+    else if (kind === 'warm') sendFairy(mac, { on: true, hue: 20, saturation: 100, brightness: 70 });
+    else                      sendFairy(mac, { on: true, hue: Math.floor(Math.random() * 360), saturation: 90, brightness: 80 });
+  });
+}
+
+async function screensOff() {
+  try { await fetch('/screen/off', { method: 'POST' }); } catch (e) {}
+}
 
 const ZONES = [
   { name: "Living Room", switchOnly: false, devices: [{ ip: "192.168.68.61" }, { ip: "192.168.68.68" }, { ip: "192.168.68.63" }, { ip: "192.168.68.71" }, { ip: "192.168.68.53" }, { ip: "192.168.68.69" }] },
@@ -292,12 +521,12 @@ ZONES.forEach(zone => {
         <div class="toggle" id="toggle-${key}" onclick="toggleZone('${zone.name}')"></div>
       </div>
       <div class="bar-effects">
-        <button class="bar-effect-btn" id="bfx-${key}-rainbow"   onclick="setBarEffect('${zone.name}','rainbow')">&#127752; Rainbow</button>
-        <button class="bar-effect-btn" id="bfx-${key}-aurora"    onclick="setBarEffect('${zone.name}','aurora')">&#127756; Aurora</button>
-        <button class="bar-effect-btn" id="bfx-${key}-ocean"     onclick="setBarEffect('${zone.name}','ocean')">&#127754; Ocean</button>
-        <button class="bar-effect-btn" id="bfx-${key}-sunset"    onclick="setBarEffect('${zone.name}','sunset')">&#127755; Sunset</button>
-        <button class="bar-effect-btn" id="bfx-${key}-lightning" onclick="setBarEffect('${zone.name}','lightning')">&#9889; Lightning</button>
-        <button class="bar-effect-btn" id="bfx-${key}-flicker"   onclick="setBarEffect('${zone.name}','flicker')">&#128167; Flicker</button>
+        <button class="bar-effect-btn" id="bfx-${key}-rainbow"   onclick="setBarEffect('${zone.name}','rainbow')"><svg class="ico" aria-hidden="true"><use href="#i-rainbow"/></svg>Rainbow</button>
+        <button class="bar-effect-btn" id="bfx-${key}-aurora"    onclick="setBarEffect('${zone.name}','aurora')"><svg class="ico" aria-hidden="true"><use href="#i-aurora"/></svg>Aurora</button>
+        <button class="bar-effect-btn" id="bfx-${key}-ocean"     onclick="setBarEffect('${zone.name}','ocean')"><svg class="ico" aria-hidden="true"><use href="#i-wave"/></svg>Ocean</button>
+        <button class="bar-effect-btn" id="bfx-${key}-sunset"    onclick="setBarEffect('${zone.name}','sunset')"><svg class="ico" aria-hidden="true"><use href="#i-sunset"/></svg>Sunset</button>
+        <button class="bar-effect-btn" id="bfx-${key}-lightning" onclick="setBarEffect('${zone.name}','lightning')"><svg class="ico" aria-hidden="true"><use href="#i-bolt"/></svg>Lightning</button>
+        <button class="bar-effect-btn" id="bfx-${key}-flicker"   onclick="setBarEffect('${zone.name}','flicker')"><svg class="ico" aria-hidden="true"><use href="#i-bulb"/></svg>Flicker</button>
       </div>`;
   } else {
     card.innerHTML = `
@@ -306,10 +535,10 @@ ZONES.forEach(zone => {
         <div class="toggle" id="toggle-${key}" onclick="toggleZone('${zone.name}')"></div>
       </div>
       <div class="zone-modes">
-        <button class="zone-mode-btn work" id="mode-${key}-work" onclick="setZoneScene('${zone.name}','work')">&#9728; Work</button>
-        <button class="zone-mode-btn party" id="mode-${key}-party" onclick="setZoneScene('${zone.name}','party')">&#10024; Party</button>
-        <button class="zone-mode-btn cosy" id="mode-${key}-cosy" onclick="setZoneScene('${zone.name}','cosy')">&#127777; Cosy</button>
-        ${zone.name === 'Living Room' ? `<button class="zone-mode-btn gaming" id="mode-${key}-gaming" onclick="setZoneScene('${zone.name}','gaming')">&#127918; Gaming</button>` : ''}
+        <button class="zone-mode-btn work" id="mode-${key}-work" onclick="setZoneScene('${zone.name}','work')"><svg class="ico" aria-hidden="true"><use href="#i-sun"/></svg>Work</button>
+        <button class="zone-mode-btn party" id="mode-${key}-party" onclick="setZoneScene('${zone.name}','party')"><svg class="ico" aria-hidden="true"><use href="#i-sparkle"/></svg>Party</button>
+        <button class="zone-mode-btn cosy" id="mode-${key}-cosy" onclick="setZoneScene('${zone.name}','cosy')"><svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg>Cosy</button>
+        ${zone.name === 'Living Room' ? `<button class="zone-mode-btn gaming" id="mode-${key}-gaming" onclick="setZoneScene('${zone.name}','gaming')"><svg class="ico" aria-hidden="true"><use href="#i-gamepad"/></svg>Gaming</button>` : ''}
       </div>
       <div class="zone-bri">
         <span class="zone-bri-label">Bri</span>
@@ -452,7 +681,7 @@ function globalScene(scene) {
     document.querySelectorAll('.scene-btn').forEach(b => b.classList.remove('active'));
     pushState({ globalScene: null });
     // Turn off fairy lights
-    FAIRY_MACS.forEach(mac => sendFairy(mac, { on: false }));
+    FAIRY_MACS.forEach((mac, i) => { sendFairy(mac, { on: false }); setFairyQuickUI(i, false); });
     sendPlug(false, 'disco'); discoOn = false;
     document.getElementById('disco-toggle').classList.remove('on');
     document.getElementById('disco-card').classList.remove('lit');
@@ -478,8 +707,9 @@ function globalScene(scene) {
 
   // Fairy lights and disco in party/gaming mode
   if (scene === 'party' || scene === 'gaming') {
-    FAIRY_MACS.forEach(mac => {
+    FAIRY_MACS.forEach((mac, i) => {
       sendFairy(mac, { on: true, hue: Math.floor(Math.random() * 360), saturation: 90, brightness: 80 });
+      setFairyQuickUI(i, true);
     });
     sendPlug(true, 'disco'); discoOn = true;
     document.getElementById('disco-toggle').classList.add('on');

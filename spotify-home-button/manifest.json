@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Dashboard Home Button",
+  "version": "1.0",
+  "description": "Floating home button on Spotify to return to the home controller dashboard",
+  "content_scripts": [
+    {
+      "matches": ["https://open.spotify.com/*"],
+      "js": ["content.js"],
+      "css": ["style.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

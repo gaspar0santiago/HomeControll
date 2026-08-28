@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Home Controller</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #21212e;
+    --border: rgba(255,255,255,0.13);
+    --accent: #c8ff00;
+    --text: #f0f0f0;
+    --muted: rgba(240,240,240,0.55);
+    --warm: #ffb347;
+    --cool: #87ceeb;
+    --party: #c084fc;
+    --gaming: #34d399;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    height: 100vh;
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+
+  header {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .brand { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 18px; letter-spacing: 0.08em; color: var(--accent); text-transform: uppercase; }
+  .clock { font-size: 28px; font-weight: 300; letter-spacing: 0.12em; text-align: center; }
+  .date-str { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+  .header-right { display: flex; align-items: center; gap: 16px; justify-content: flex-end; }
+
+  .spotify-btn {
+    display: flex; align-items: center; gap: 8px;
+    background: #1DB954; color: #000; border: none;
+    border-radius: 100px; padding: 10px 20px;
+    font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px;
+    cursor: pointer; transition: opacity 0.15s; letter-spacing: 0.03em;
+    text-decoration: none;
+  }
+  .spotify-btn:hover { opacity: 0.85; }
+
+  .lights-panel {
+    padding: 24px 32px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .panel-label { font-family: 'Syne', sans-serif; font-size: 10px; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; }
+  .global-scenes { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px; }
+
+  .scene-btn {
+    padding: 18px 8px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.22);
+    background: #1e1e2b; color: rgba(240,240,240,0.85);
+    font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px;
+    cursor: pointer; display: flex; flex-direction: column; align-items: center;
+    gap: 8px; transition: all 0.2s; letter-spacing: 0.03em;
+  }
+  .scene-btn .icon { font-size: 24px; }
+  .scene-btn:active { transform: scale(0.97); }
+  .scene-btn.work-scene.active { background: rgba(135,206,235,0.12); border-color: var(--cool); color: var(--cool); }
+  .scene-btn.party-scene.active { background: rgba(192,132,252,0.12); border-color: var(--party); color: var(--party); }
+  .scene-btn.cosy-scene.active { background: rgba(255,179,71,0.12); border-color: var(--warm); color: var(--warm); }
+  .scene-btn.gaming-scene.active { background: rgba(52,211,153,0.12); border-color: var(--gaming); color: var(--gaming); }
+
+  .global-brightness {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .bri-header { display: flex; align-items: center; justify-content: space-between; }
+  .bri-label { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+  .bri-val { font-size: 11px; color: var(--accent); font-weight: 500; }
+
+  input[type=range] { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 2px; background: var(--surface2); outline: none; cursor: pointer; }
+  input[type=range].accent-thumb::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 0 8px rgba(200,255,0,0.4); }
+  input[type=range].white-thumb::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: var(--text); border-radius: 50%; cursor: pointer; }
+
+  .divider { height: 1px; background: var(--border); }
+  .individual-layout { display: flex; flex-direction: column; gap: 14px; }
+  .bottom-row { display: flex; gap: 14px; align-items: stretch; }
+  .bottom-row .bar-container { flex: 1; }
+  .disco-zone { width: 150px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; justify-content: space-evenly; align-items: center; padding: 14px 8px; transition: border-color 0.2s; gap: 10px; }
+  .disco-zone.lit { border-color: rgba(200,255,0,0.3); }
+  .disco-zone .disco-emoji { font-size: 70px; }
+  .disco-zone .disco-label { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);  text-orientation: mixed; }
+  .zones-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+  .zone-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px; transition: border-color 0.2s; display: flex; flex-direction: column; gap: 12px; }
+  .zone-card.lit { border-color: rgba(200,255,0,0.25); }
+  .zone-card.bar-card { gap: 14px; height: 100%; justify-content: center; }
+  .bar-top { display: flex; align-items: center; justify-content: space-between; }
+  .bar-label { display: flex; align-items: center; gap: 10px; }
+  .bar-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: background 0.3s, box-shadow 0.3s; }
+  .zone-card.lit .bar-dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  .bar-effects { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .bar-effect-btn { padding: 9px 4px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.22); background: #2e2e42; color: rgba(240,240,240,0.85); font-family: 'DM Mono', monospace; font-size: 11px; cursor: pointer; text-align: center; transition: all 0.15s; }
+  .bar-effect-btn:active { transform: scale(0.95); }
+  .bar-effect-btn.active { background: rgba(200,255,0,0.15); border-color: var(--accent); color: var(--accent); }
+
+  .zone-header { display: flex; align-items: center; justify-content: space-between; }
+  .zone-name { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 14px; }
+
+  .toggle { width: 46px; height: 26px; background: var(--surface2); border-radius: 13px; border: 1px solid var(--border); cursor: pointer; position: relative; transition: background 0.25s; flex-shrink: 0; }
+  .toggle.on { background: var(--accent); border-color: var(--accent); }
+  .toggle::after { content: ''; position: absolute; width: 20px; height: 20px; background: white; border-radius: 50%; top: 2px; left: 2px; transition: transform 0.25s; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+  .toggle.on::after { transform: translateX(20px); }
+
+  .zone-modes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .zone-mode-btn { padding: 9px 4px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.22); background: #2e2e42; color: rgba(240,240,240,0.85); font-family: 'DM Mono', monospace; font-size: 11px; cursor: pointer; text-align: center; transition: all 0.15s; }
+  .zone-mode-btn:active { transform: scale(0.95); }
+  .zone-mode-btn.work.active { background: rgba(135,206,235,0.15); border-color: var(--cool); color: var(--cool); }
+  .zone-mode-btn.party.active { background: rgba(192,132,252,0.15); border-color: var(--party); color: var(--party); }
+  .zone-mode-btn.cosy.active { background: rgba(255,179,71,0.15); border-color: var(--warm); color: var(--warm); }
+  .zone-mode-btn.gaming.active { background: rgba(52,211,153,0.15); border-color: var(--gaming); color: var(--gaming); }
+
+  .zone-bri { display: flex; align-items: center; gap: 10px; }
+  .zone-bri-label { font-size: 9px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; flex-shrink: 0; width: 20px; }
+  .zone-bri-val { font-size: 9px; color: var(--muted); flex-shrink: 0; width: 28px; text-align: right; }
+
+  .camera-panel {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 14px 32px 16px;
+    height: 340px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15%;
+  }
+
+  .cam-block { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .cam-label { font-family: 'Syne', sans-serif; font-size: 9px; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; }
+
+  .cam-wrap {
+    width: auto;
+    height: 315px;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .cam-wrap img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">&#8962; Home</div>
+  <div class="clock" id="clock">00:00</div>
+  <div class="header-right">
+    <div class="date-str" id="datestr"></div>
+    <a class="spotify-btn" href="https://open.spotify.com" target="_blank">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+      Open Spotify
+    </a>
+  </div>
+</header>
+
+<div class="lights-panel">
+  <div class="panel-label">All Zones</div>
+  <div class="global-scenes">
+    <button class="scene-btn work-scene" id="global-work" onclick="globalScene('work')"><span class="icon">&#9728;</span>Work</button>
+    <button class="scene-btn party-scene" id="global-party" onclick="globalScene('party')"><span class="icon">&#10024;</span>Party</button>
+    <button class="scene-btn cosy-scene" id="global-cosy" onclick="globalScene('cosy')"><span class="icon">&#127777;</span>Cosy</button>
+    <button class="scene-btn gaming-scene" id="global-gaming" onclick="globalScene('gaming')"><span class="icon">&#127918;</span>Gaming</button>
+  </div>
+  <div class="global-brightness">
+    <div class="bri-header">
+      <span class="bri-label">&#9788; All Brightness</span>
+      <span class="bri-val" id="global-bri-val">80%</span>
+    </div>
+    <input type="range" class="accent-thumb" min="1" max="100" value="80" id="global-bri-slider"
+      oninput="onGlobalBriInput(this.value)" onchange="sendGlobalBrightness(this.value)">
+  </div>
+  <div class="divider"></div>
+  <div class="panel-label">Individual Zones</div>
+  <div class="individual-layout">
+    <div class="zones-grid" id="zones-container"></div>
+    <div class="bottom-row">
+      <div class="bar-container" id="bar-container"></div>
+      <div class="disco-zone" id="spotlight2-card">
+        <div class="disco-emoji" style="display:inline-block;transform:rotate(180deg);">&#128294;</div>
+        <div class="zone-name">Spotlight 1</div>
+        <div class="toggle" id="spotlight2-toggle" onclick="toggleSpotlight2()"></div>
+      </div>
+      <div class="disco-zone" id="disco-card">
+        <div class="disco-emoji">&#129705;</div>
+        <div class="zone-name">Disco Ball</div>
+        <div class="toggle" id="disco-toggle" onclick="toggleDisco()"></div>
+      </div>
+      <div class="disco-zone" id="spotlight-card">
+        <div class="disco-emoji" style="display:inline-block;transform:rotate(-90deg);">&#128294;</div>
+        <div class="zone-name">Spotlight 2</div>
+        <div class="toggle" id="spotlight-toggle" onclick="toggleSpotlight()"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="camera-panel">
+  <div class="cam-block">
+    <div class="cam-label">Camera 1</div>
+    <div class="cam-wrap">
+      <img id="cam-feed" src="/camera/stream" onerror="reconnectCam('cam-feed','/camera/stream')">
+    </div>
+  </div>
+  <div class="cam-block">
+    <div class="cam-label">Camera 2</div>
+    <div class="cam-wrap">
+      <img id="cam-feed2" src="/camera2/stream" onerror="reconnectCam('cam-feed2','/camera2/stream')">
+    </div>
+  </div>
+</div>
+
+<script>
+const FAIRY_MACS = ['FF:24:12:11:07:D6', 'FF:24:12:11:0D:C6'];
+let gamingTableBri = 40;
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
+  document.getElementById('datestr').textContent =
+    now.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+function reconnectCam(id, src) {
+  const img = document.getElementById(id);
+  setTimeout(() => { img.src = src + '?t=' + Date.now(); }, 3000);
+}
+
+const ZONES = [
+  { name: "Living Room", switchOnly: false, devices: [{ ip: "192.168.68.61" }, { ip: "192.168.68.68" }, { ip: "192.168.68.63" }, { ip: "192.168.68.71" }, { ip: "192.168.68.53" }, { ip: "192.168.68.69" }] },
+  { name: "Living Room Plus", switchOnly: false, devices: [{ ip: "192.168.68.75" }, { ip: "192.168.68.78" }] },
+  { name: "Balcony", switchOnly: false, devices: [{ ip: "192.168.68.50" }, { ip: "192.168.68.51" }, { ip: "192.168.68.52" }] },
+  { name: "Bar", switchOnly: true, devices: [{ ip: "192.168.68.80" }] }
+];
+
+const zoneState = {};
+ZONES.forEach(z => { zoneState[z.name] = { on: false, mode: null, brightness: 80 }; });
+let activeGlobalScene = null;
+let syncPaused = false;
+
+const container = document.getElementById('zones-container');
+const barContainer = document.getElementById('bar-container');
+ZONES.forEach(zone => {
+  const key = zone.name.replace(/\s/g, '_');
+  const card = document.createElement('div');
+  card.className = 'zone-card' + (zone.switchOnly ? ' bar-card' : '');
+  card.id = 'zone-' + key;
+  if (zone.switchOnly) {
+    card.innerHTML = `
+      <div class="bar-top">
+        <div class="bar-label"><div class="bar-dot"></div><div class="zone-name">${zone.name}</div></div>
+        <div class="toggle" id="toggle-${key}" onclick="toggleZone('${zone.name}')"></div>
+      </div>
+      <div class="bar-effects">
+        <button class="bar-effect-btn" id="bfx-${key}-rainbow"   onclick="setBarEffect('${zone.name}','rainbow')">&#127752; Rainbow</button>
+        <button class="bar-effect-btn" id="bfx-${key}-aurora"    onclick="setBarEffect('${zone.name}','aurora')">&#127756; Aurora</button>
+        <button class="bar-effect-btn" id="bfx-${key}-ocean"     onclick="setBarEffect('${zone.name}','ocean')">&#127754; Ocean</button>
+        <button class="bar-effect-btn" id="bfx-${key}-sunset"    onclick="setBarEffect('${zone.name}','sunset')">&#127755; Sunset</button>
+        <button class="bar-effect-btn" id="bfx-${key}-lightning" onclick="setBarEffect('${zone.name}','lightning')">&#9889; Lightning</button>
+        <button class="bar-effect-btn" id="bfx-${key}-flicker"   onclick="setBarEffect('${zone.name}','flicker')">&#128167; Flicker</button>
+      </div>`;
+  } else {
+    card.innerHTML = `
+      <div class="zone-header">
+        <div class="zone-name">${zone.name}</div>
+        <div class="toggle" id="toggle-${key}" onclick="toggleZone('${zone.name}')"></div>
+      </div>
+      <div class="zone-modes">
+        <button class="zone-mode-btn work" id="mode-${key}-work" onclick="setZoneScene('${zone.name}','work')">&#9728; Work</button>
+        <button class="zone-mode-btn party" id="mode-${key}-party" onclick="setZoneScene('${zone.name}','party')">&#10024; Party</button>
+        <button class="zone-mode-btn cosy" id="mode-${key}-cosy" onclick="setZoneScene('${zone.name}','cosy')">&#127777; Cosy</button>
+        ${zone.name === 'Living Room' ? `<button class="zone-mode-btn gaming" id="mode-${key}-gaming" onclick="setZoneScene('${zone.name}','gaming')">&#127918; Gaming</button>` : ''}
+      </div>
+      <div class="zone-bri">
+        <span class="zone-bri-label">Bri</span>
+        <input type="range" class="white-thumb" min="1" max="100" value="80" id="bri-${key}"
+          oninput="onZoneBriInput('${zone.name}', this.value)" onchange="sendZoneBrightness('${zone.name}', this.value)">
+        <span class="zone-bri-val" id="bri-val-${key}">80%</span>
+      </div>
+      ${zone.name === 'Living Room' ? `
+      <div class="zone-bri">
+        <span class="zone-bri-label">Table</span>
+        <input type="range" class="white-thumb" min="1" max="100" value="40" id="table-bri"
+          oninput="onTableBriInput(this.value)" onchange="sendTableBrightness(this.value)">
+        <span class="zone-bri-val" id="table-bri-val">40%</span>
+      </div>` : ''}`;
+  }
+  if (zone.switchOnly) barContainer.appendChild(card);
+  else container.appendChild(card);
+});
+
+function updateToggleUI(zoneName, isOn) {
+  const key = zoneName.replace(/\s/g, '_');
+  document.getElementById('toggle-' + key)?.classList.toggle('on', isOn);
+  document.getElementById('zone-' + key)?.classList.toggle('lit', isOn);
+}
+
+function clearModeButtons(zoneName) {
+  const key = zoneName.replace(/\s/g, '_');
+  ['work','party','cosy','gaming'].forEach(m => document.getElementById('mode-' + key + '-' + m)?.classList.remove('active'));
+}
+
+function clearRainbow(zoneName) {
+  const key = zoneName.replace(/\s/g, '_');
+  BAR_EFFECTS.forEach(fx => document.getElementById('bfx-'+key+'-'+fx)?.classList.remove('active'));
+}
+
+function setModeButton(zoneName, mode) {
+  const key = zoneName.replace(/\s/g, '_');
+  ['work','party','cosy','gaming'].forEach(m => document.getElementById('mode-' + key + '-' + m)?.classList.toggle('active', m === mode));
+}
+
+async function pushState(update) {
+  syncPaused = true;
+  await fetch('/lights/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update) });
+  setTimeout(() => { syncPaused = false; }, 2000);
+}
+
+async function pullState() {
+  if (syncPaused) return;
+  try {
+    const data = await (await fetch('/lights/state')).json();
+    document.querySelectorAll('.scene-btn').forEach(b => b.classList.remove('active'));
+    if (data.globalScene) document.getElementById('global-' + data.globalScene)?.classList.add('active');
+    activeGlobalScene = data.globalScene;
+    const slider = document.getElementById('global-bri-slider');
+    const briVal = document.getElementById('global-bri-val');
+    if (slider && !slider.matches(':active')) { slider.value = data.globalBrightness; briVal.textContent = data.globalBrightness + '%'; }
+    ZONES.forEach(zone => {
+      const s = data.zones[zone.name]; if (!s) return;
+      const prev = zoneState[zone.name];
+      if (prev.on !== s.on || prev.mode !== s.mode || prev.brightness !== s.brightness) {
+        zoneState[zone.name] = { ...s };
+        updateToggleUI(zone.name, s.on);
+        if (!zone.switchOnly) {
+          if (s.mode) setModeButton(zone.name, s.mode); else clearModeButtons(zone.name);
+          const key = zone.name.replace(/\s/g, '_');
+          const briSlider = document.getElementById('bri-' + key);
+          const briVal2 = document.getElementById('bri-val-' + key);
+          if (briSlider && !briSlider.matches(':active')) { briSlider.value = s.brightness; if (briVal2) briVal2.textContent = s.brightness + '%'; }
+        } else {
+          const bkey = zone.name.replace(/\s/g,'_');
+          BAR_EFFECTS.forEach(fx => document.getElementById('bfx-'+bkey+'-'+fx)?.classList.remove('active'));
+          if (s.on && s.mode) document.getElementById('bfx-'+bkey+'-'+s.mode)?.classList.add('active');
+        }
+      }
+    });
+    if (data.plugs) {
+      if (data.plugs.disco !== undefined && data.plugs.disco !== discoOn) {
+        discoOn = data.plugs.disco;
+        document.getElementById('disco-toggle')?.classList.toggle('on', discoOn);
+        document.getElementById('disco-card')?.classList.toggle('lit', discoOn);
+      }
+      if (data.plugs.spotlight !== undefined && data.plugs.spotlight !== spotlightOn) {
+        spotlightOn = data.plugs.spotlight;
+        document.getElementById('spotlight-toggle')?.classList.toggle('on', spotlightOn);
+        document.getElementById('spotlight-card')?.classList.toggle('lit', spotlightOn);
+      }
+      if (data.plugs.spotlight2 !== undefined && data.plugs.spotlight2 !== spotlight2On) {
+        spotlight2On = data.plugs.spotlight2;
+        document.getElementById('spotlight2-toggle')?.classList.toggle('on', spotlight2On);
+        document.getElementById('spotlight2-card')?.classList.toggle('lit', spotlight2On);
+      }
+    }
+  } catch(e) {}
+}
+
+setInterval(pullState, 3000);
+
+function toggleZone(zoneName) {
+  const state = zoneState[zoneName];
+  state.on = !state.on;
+  if (!state.on) { state.mode = null; clearModeButtons(zoneName); clearRainbow(zoneName); }
+  updateToggleUI(zoneName, state.on);
+  pushState({ zone: zoneName, on: state.on, mode: state.mode });
+  const zone = ZONES.find(z => z.name === zoneName);
+  if (zone.switchOnly && state.on) zone.devices.forEach(d => sendTapo(d.ip, { on: true, effect: zoneState[zoneName].mode || 'rainbow' }));
+  else zone.devices.forEach(d => sendTapo(d.ip, { on: state.on }));
+}
+
+function setZoneScene(zoneName, scene) {
+  zoneState[zoneName].on = true; zoneState[zoneName].mode = scene;
+  updateToggleUI(zoneName, true); setModeButton(zoneName, scene);
+  pushState({ zone: zoneName, on: true, mode: scene });
+  if (scene === 'gaming' && zoneName === 'Living Room') {
+    const GAMING_WARM_IPS = ['192.168.68.63', '192.168.68.71'];
+    const bri = zoneState[zoneName].brightness;
+    ZONES.find(z => z.name === 'Living Room').devices.forEach(d => {
+      if (GAMING_WARM_IPS.includes(d.ip)) sendTapo(d.ip, { on: true, color_temp: 2700, brightness: gamingTableBri });
+      else sendTapo(d.ip, { on: true, hue: Math.floor(Math.random() * 360), saturation: 90, brightness: bri });
+    });
+  } else {
+    applyScene(ZONES.find(z => z.name === zoneName).devices, scene, zoneState[zoneName].brightness);
+  }
+}
+
+const BAR_EFFECTS = ['rainbow','aurora','ocean','sunset','lightning','flicker'];
+
+function setBarEffect(zoneName, effect) {
+  const key = zoneName.replace(/\s/g, '_');
+  zoneState[zoneName].on = true; zoneState[zoneName].mode = effect;
+  updateToggleUI(zoneName, true);
+  BAR_EFFECTS.forEach(fx => document.getElementById('bfx-'+key+'-'+fx)?.classList.remove('active'));
+  document.getElementById('bfx-'+key+'-'+effect)?.classList.add('active');
+  pushState({ zone: zoneName, on: true, mode: effect });
+  ZONES.find(z => z.name === zoneName).devices.forEach(d => sendTapo(d.ip, { on: true, effect }));
+}
+
+function globalScene(scene) {
+  if (activeGlobalScene === scene) {
+    activeGlobalScene = null;
+    document.querySelectorAll('.scene-btn').forEach(b => b.classList.remove('active'));
+    pushState({ globalScene: null });
+    // Turn off fairy lights
+    FAIRY_MACS.forEach(mac => sendFairy(mac, { on: false }));
+    sendPlug(false, 'disco'); discoOn = false;
+    document.getElementById('disco-toggle').classList.remove('on');
+    document.getElementById('disco-card').classList.remove('lit');
+    sendPlug(false, 'spotlight'); spotlightOn = false;
+    document.getElementById('spotlight-toggle').classList.remove('on');
+    document.getElementById('spotlight-card').classList.remove('lit');
+    sendPlug(false, 'spotlight2'); spotlight2On = false;
+    document.getElementById('spotlight2-toggle').classList.remove('on');
+    document.getElementById('spotlight2-card').classList.remove('lit');
+    ZONES.forEach(zone => {
+      zoneState[zone.name].on = false; zoneState[zone.name].mode = null;
+      updateToggleUI(zone.name, false); clearModeButtons(zone.name); clearRainbow(zone.name);
+      pushState({ zone: zone.name, on: false, mode: null });
+      zone.devices.forEach(d => sendTapo(d.ip, { on: false }));
+    });
+    return;
+  }
+  activeGlobalScene = scene;
+  document.querySelectorAll('.scene-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('global-' + scene).classList.add('active');
+  pushState({ globalScene: scene });
+  const globalBri = parseInt(document.getElementById('global-bri-slider').value);
+
+  // Fairy lights and disco in party/gaming mode
+  if (scene === 'party' || scene === 'gaming') {
+    FAIRY_MACS.forEach(mac => {
+      sendFairy(mac, { on: true, hue: Math.floor(Math.random() * 360), saturation: 90, brightness: 80 });
+    });
+    sendPlug(true, 'disco'); discoOn = true;
+    document.getElementById('disco-toggle').classList.add('on');
+    document.getElementById('disco-card').classList.add('lit');
+    sendPlug(true, 'spotlight'); spotlightOn = true;
+    document.getElementById('spotlight-toggle').classList.add('on');
+    document.getElementById('spotlight-card').classList.add('lit');
+    sendPlug(true, 'spotlight2'); spotlight2On = true;
+    document.getElementById('spotlight2-toggle').classList.add('on');
+    document.getElementById('spotlight2-card').classList.add('lit');
+  }
+
+  const GAMING_WARM_IPS = ['192.168.68.63', '192.168.68.71'];
+
+  ZONES.forEach(zone => {
+    if (zone.switchOnly) {
+      if (scene === 'party' || scene === 'gaming') {
+        zoneState[zone.name].on = true; updateToggleUI(zone.name, true);
+        document.getElementById('bfx-' + zone.name.replace(/\s/g,'_') + '-rainbow')?.classList.add('active');
+        pushState({ zone: zone.name, on: true, mode: 'rainbow' });
+        zone.devices.forEach(d => sendTapo(d.ip, { on: true, effect: 'rainbow' }));
+      }
+    } else if (scene === 'gaming' && zone.name === 'Living Room') {
+      zoneState[zone.name].on = true; zoneState[zone.name].mode = 'gaming'; zoneState[zone.name].brightness = globalBri;
+      updateToggleUI(zone.name, true); setModeButton(zone.name, 'gaming');
+      pushState({ zone: zone.name, on: true, mode: 'gaming', brightness: globalBri });
+      const key = zone.name.replace(/\s/g, '_');
+      const s = document.getElementById('bri-' + key); const v = document.getElementById('bri-val-' + key);
+      if (s) s.value = globalBri; if (v) v.textContent = globalBri + '%';
+      zone.devices.forEach(d => {
+        if (GAMING_WARM_IPS.includes(d.ip)) sendTapo(d.ip, { on: true, color_temp: 2700, brightness: gamingTableBri });
+        else sendTapo(d.ip, { on: true, hue: Math.floor(Math.random() * 360), saturation: 90, brightness: globalBri });
+      });
+    } else {
+      const effectiveScene = (scene === 'gaming') ? 'party' : scene;
+      zoneState[zone.name].on = true; zoneState[zone.name].mode = effectiveScene; zoneState[zone.name].brightness = globalBri;
+      updateToggleUI(zone.name, true); setModeButton(zone.name, effectiveScene);
+      pushState({ zone: zone.name, on: true, mode: effectiveScene, brightness: globalBri });
+      const key = zone.name.replace(/\s/g, '_');
+      const s = document.getElementById('bri-' + key); const v = document.getElementById('bri-val-' + key);
+      if (s) s.value = globalBri; if (v) v.textContent = globalBri + '%';
+      applyScene(zone.devices, effectiveScene, globalBri);
+    }
+  });
+  pushState({ globalBrightness: globalBri });
+}
+
+function applyScene(devices, scene, brightness) {
+  const bri = brightness || 80;
+  devices.forEach(d => {
+    if (scene === 'work') sendTapo(d.ip, { on: true, color_temp: 4500, brightness: bri });
+    else if (scene === 'cosy') sendTapo(d.ip, { on: true, color_temp: 2700, brightness: bri });
+    else if (scene === 'party') sendTapo(d.ip, { on: true, hue: Math.floor(Math.random() * 360), saturation: 90, brightness: bri });
+  });
+}
+
+function onGlobalBriInput(val) { document.getElementById('global-bri-val').textContent = val + '%'; }
+
+function sendGlobalBrightness(val) {
+  const bri = parseInt(val);
+  pushState({ globalBrightness: bri });
+  ZONES.forEach(zone => {
+    if (zoneState[zone.name].on && !zone.switchOnly) {
+      zoneState[zone.name].brightness = bri;
+      const key = zone.name.replace(/\s/g, '_');
+      const s = document.getElementById('bri-' + key); const v = document.getElementById('bri-val-' + key);
+      if (s) s.value = bri; if (v) v.textContent = bri + '%';
+      pushState({ zone: zone.name, brightness: bri });
+      zone.devices.forEach(d => sendTapo(d.ip, { brightness: bri }));
+    }
+  });
+}
+
+function onZoneBriInput(zoneName, val) {
+  document.getElementById('bri-val-' + zoneName.replace(/\s/g,'_')).textContent = val + '%';
+}
+
+function sendZoneBrightness(zoneName, val) {
+  const bri = parseInt(val);
+  zoneState[zoneName].brightness = bri;
+  pushState({ zone: zoneName, brightness: bri });
+  if (zoneState[zoneName].on) {
+    const GAMING_WARM_IPS = ['192.168.68.63', '192.168.68.71'];
+    ZONES.find(z => z.name === zoneName).devices.forEach(d => {
+      if (zoneName === 'Living Room' && zoneState[zoneName].mode === 'gaming' && GAMING_WARM_IPS.includes(d.ip)) return;
+      sendTapo(d.ip, { brightness: bri });
+    });
+  }
+}
+
+function onTableBriInput(val) {
+  document.getElementById('table-bri-val').textContent = val + '%';
+}
+
+function sendTableBrightness(val) {
+  gamingTableBri = parseInt(val);
+  const GAMING_WARM_IPS = ['192.168.68.63', '192.168.68.71'];
+  GAMING_WARM_IPS.forEach(ip => sendTapo(ip, { brightness: gamingTableBri, color_temp: 2700 }));
+}
+
+async function sendTapo(ip, payload) {
+  try {
+    await fetch('/tapo/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip, ...payload }) });
+  } catch(e) {}
+}
+
+async function sendFairy(mac, payload) {
+  try {
+    await fetch('/fairy/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac, ...payload }) });
+  } catch(e) {}
+}
+
+// ── DISCO BALL ────────────────────────────────────────────────
+let discoOn = false;
+
+function toggleDisco() {
+  discoOn = !discoOn;
+  document.getElementById('disco-toggle').classList.toggle('on', discoOn);
+  document.getElementById('disco-card').classList.toggle('lit', discoOn);
+  sendPlug(discoOn, 'disco');
+}
+
+let spotlightOn = false;
+
+function toggleSpotlight() {
+  spotlightOn = !spotlightOn;
+  document.getElementById('spotlight-toggle').classList.toggle('on', spotlightOn);
+  document.getElementById('spotlight-card').classList.toggle('lit', spotlightOn);
+  sendPlug(spotlightOn, 'spotlight');
+}
+
+let spotlight2On = false;
+
+function toggleSpotlight2() {
+  spotlight2On = !spotlight2On;
+  document.getElementById('spotlight2-toggle').classList.toggle('on', spotlight2On);
+  document.getElementById('spotlight2-card').classList.toggle('lit', spotlight2On);
+  sendPlug(spotlight2On, 'spotlight2');
+}
+
+async function sendPlug(on, device = 'disco') {
+  try {
+    await fetch('/plug/control', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on, device }) });
+  } catch(e) {}
+}
+</script>
+</body>
+</html>

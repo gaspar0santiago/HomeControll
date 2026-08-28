@@ -1,0 +1,60 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install server dependencies
+        working-directory: home-controller
+        run: npm ci
+
+      - name: Syntax-check server.js
+        working-directory: home-controller
+        run: npm run check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Syntax-check the Python helpers
+        working-directory: home-controller
+        run: python -m compileall -q . tools
+
+      - name: Server boots and serves its API with no cameras configured
+        working-directory: home-controller
+        env:
+          PORT: '3999'
+          CAMERA_IP: ''
+          CAMERA2_IP: ''
+        run: |
+          node server.js & SRV=$!
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:3999/lights/state >/dev/null && break
+            sleep 0.25
+          done
+          test "$(curl -s http://127.0.0.1:3999/cameras)" = "[]"
+          curl -sf http://127.0.0.1:3999/lights/state >/dev/null
+          curl -sf http://127.0.0.1:3999/ >/dev/null
+          curl -sf http://127.0.0.1:3999/lights >/dev/null
+          kill $SRV
+
+      - name: Fail if a .env or tinytuya artifact was ever committed
+        run: |
+          if git ls-files --error-unmatch \
+              home-controller/.env tinytuya.json devices.json \
+              snapshot.json tuya-raw.json 2>/dev/null; then
+            echo "A secret-bearing file is tracked by git"
+            exit 1
+          fi
+          echo "No secret-bearing files tracked"

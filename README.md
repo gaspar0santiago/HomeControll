@@ -43,9 +43,9 @@ server every 3 seconds, so whatever you press on one shows up on the other.
    spawn python  spawn python  spawn python      spawn ffmpeg / powershell
    tapo_helper   plug_helper   fairy_helper
         |           |           |                     |
-     Tapo bulbs   Arlec/Tuya  Hello Fairy         RTSP cameras
-     + L920 bar   plugs       BLE curtains        + screen on/off
-     (KLAP/LAN)   (tinytuya   (bleak, reverse-
+     Tapo bulbs   Arlec/Tuya  Hello Fairy         RTSP cameras (0-2,
+     + L920 bar   plugs       BLE curtains        each optional)
+     (KLAP/LAN)   (tinytuya   (bleak, reverse-    + screen on/off
                    /LAN)       engineered)
 ```
 
@@ -107,9 +107,14 @@ Write characteristic `49535343-8841-43f4-a8d4-ecbe34729bb3`, frames
 | Thing | Where | Notes |
 | --- | --- | --- |
 | Server host | 192.168.68.57:3000 | Surface Book 2, Windows |
-| Camera 1 | `CAMERA_IP` in `.env` | RTSP `/stream1`, also drives motion wake |
-| Camera 2 | `CAMERA2_IP` in `.env` | RTSP `/stream1` |
-| ffmpeg | `C:\ffmpeg\bin\ffmpeg.exe` | hardcoded path in `server.js` |
+| Camera 1 | `CAMERA_IP` in `.env` | RTSP `/stream1`. Leave empty to disable |
+| Camera 2 | `CAMERA2_IP` in `.env` | RTSP `/stream1`. Leave empty to disable |
+| ffmpeg | `C:\ffmpeg\bin\ffmpeg.exe` | override with `FFMPEG_PATH` |
+
+Either camera can be left out. An empty IP means the stream is never
+started, its route is never registered, and the kiosk hides the tile — so an
+unplugged camera costs nothing, and comes back by filling the variable in
+again and restarting.
 
 ### Scenes
 
@@ -144,6 +149,11 @@ actually in party mode.
 | `screen-on.ps1` / `screen-off.ps1` | Nudge the mouse to wake / send `WM_SYSCOMMAND SC_MONITORPOWER` to sleep the displays |
 | `tools/` | One-off manual test scripts from setup. Not used by the server |
 
+The repo also runs a small GitHub Actions check on every push and PR:
+syntax-checks `server.js` and the Python helpers, boots the server with no
+cameras configured and hits its endpoints, and fails if a `.env` or any
+tinytuya artifact was ever committed.
+
 ### REST API
 
 | Method | Path | Body / notes |
@@ -153,8 +163,9 @@ actually in party mode.
 | `POST` | `/tapo/control` | `{ ip, on, brightness, color_temp, hue, saturation, effect }` |
 | `POST` | `/plug/control` | `{ device: 'disco'\|'spotlight'\|'spotlight2', on }` |
 | `POST` | `/fairy/control` | `{ mac, on, hue, saturation, brightness, white, music, sensitivity }` |
-| `GET` | `/camera/stream` | MJPEG `multipart/x-mixed-replace` |
-| `GET` | `/camera2/stream` | MJPEG `multipart/x-mixed-replace` |
+| `GET` | `/cameras` | Which cameras are configured — the kiosk builds its tiles from this |
+| `GET` | `/camera/stream` | MJPEG `multipart/x-mixed-replace`. Only registered when `CAMERA_IP` is set |
+| `GET` | `/camera2/stream` | MJPEG `multipart/x-mixed-replace`. Only registered when `CAMERA2_IP` is set |
 | `POST` | `/screen/off` | Blank both displays |
 | `POST` | `/screen/wake` | Wake them |
 | `GET` | `/screen/state` | Last screen action + timestamp |
@@ -180,7 +191,8 @@ notepad .env          # fill in every value
 | --- | --- |
 | Server | `PORT` |
 | Tapo | `TAPO_EMAIL`, `TAPO_PASSWORD` |
-| Cameras | `CAMERA_IP`, `CAMERA2_IP`, `CAMERA_USERNAME`, `CAMERA_PASSWORD` |
+| Cameras | `CAMERA_IP`, `CAMERA2_IP` (either may be empty), `CAMERA_USERNAME`, `CAMERA_PASSWORD` |
+| Optional | `MOTION_CAMERA` (which camera drives motion wake), `FFMPEG_PATH` |
 | Plugs | `PLUG_<DISCO\|SPOTLIGHT\|SPOTLIGHT2>_{ID,IP,KEY,VER}` |
 | Fairy | `FAIRY1_MAC`, `FAIRY2_MAC` (only used by `tools/fairy_test.py`) |
 
@@ -205,6 +217,9 @@ pm2-startup install
 pm2 start server.js --name home-controller
 pm2 save
 ```
+
+For a quick foreground run while testing, `npm start`. `npm run check`
+syntax-checks `server.js` without starting it.
 
 PM2 must run it with `home-controller/` as the working directory —
 `server.js` calls `require('dotenv').config()`, which resolves `.env`
@@ -238,13 +253,16 @@ Then point kiosk 1 at `http://127.0.0.1:3000/` and kiosk 2 at
 - **Gaming mode's warm bulbs are hardcoded** as `192.168.68.63` and
   `192.168.68.71` in both HTML files. Move a lamp, edit both.
 - **The `/screen/*` endpoints have no UI.** They work, but nothing in either
-  page calls them; screens currently only wake via camera-1 motion.
+  page calls them, so motion wake never actually fires today.
 - **Motion detection is crude** — it sums every 20th byte of the JPEG and
-  compares frames. Lighting changes trigger it, which is a real problem in a
-  room whose lights this same server is changing.
-- **Windows-only.** PowerShell display control and a hardcoded ffmpeg path.
-- **`spotify-web-api-node` is installed but unused.** Left over from an
-  earlier attempt at in-dashboard playback.
+  compares frames. It ignores frames while the party cycle is running and for
+  5s after any light command, so the server no longer wakes the screens with
+  its own lighting changes, but it is still whole-frame brightness rather
+  than real motion tracking.
+- **Motion wake needs a camera.** With every camera disabled there is nothing
+  to detect against, so the screens will not wake on their own.
+- **Windows-only.** The display control shells out to PowerShell, and the
+  ffmpeg default is a Windows path (overridable with `FFMPEG_PATH`).
 
 ---
 

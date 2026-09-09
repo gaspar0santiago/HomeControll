@@ -119,6 +119,54 @@ separate, so the coil side and the door side share nothing but the two
 contact wires. Wiring COM and NO in parallel with the button means the
 button is unaffected: press it and the door opens exactly as before.
 
+### What wire to buy
+
+Only one run needs buying: **relay COM and NO to the intercom**. The F to F
+jumpers that came with the board cover ESP32 to relay, which is three short
+hops inside the same box.
+
+**2 core stranded, 0.5mm2 (about 20 AWG).** Alarm cable, bell wire or
+figure 8 speaker cable all work and all cost nothing. Five metres is more
+than enough and leaves slack for a second attempt.
+
+Why 0.5mm2 specifically: you do not yet know what that button carries. In
+some intercoms the release button switches the door strike coil directly,
+which is on the order of an amp. In others it is a signal to the intercom's
+own electronics, which is milliamps. 0.5mm2 covers both without having to
+find out, drops no meaningful voltage over a run this short, and still fits
+the relay's screw terminals comfortably.
+
+Get **stranded, not solid core**. Solid core work hardens and snaps where it
+flexes going into a wall box, and this run will get moved at least twice
+while you are fitting it.
+
+**Polarity does not matter.** COM and NO are a dry contact, which is to say
+a switch. There is no correct way round, so any two conductors will do and
+the colours are for your own sanity rather than for the circuit.
+
+### Before you cut anything
+
+Look for terminals on the intercom first. A lot of door phones have a
+labelled pair for exactly this, something like `door release`, `DO`, or a
+push to exit input. Landing on a terminal block is far better than
+soldering to the back of the button: it is reversible, it is what the
+terminals are for, and it does not risk lifting a pad on a unit that is
+probably older than the lease.
+
+If there is no terminal and you do have to go to the button, put a
+multimeter across its contacts in continuity mode and press it. The pair
+that beeps is the pair you want, and the relay goes across those two.
+
+For the ends, use bootlace ferrules if you can get them. Do not tin
+stranded wire with solder for a screw terminal: solder cold flows under
+pressure and the joint quietly loosens over months, which is a hard fault
+to find later. Failing ferrules, twist the strands tight and do not
+overstrip, so nothing can splay into the neighbouring terminal.
+
+The dupont jumpers between the board and the relay are fine electrically
+but they work loose with vibration. A zip tie or a dab of hot glue over the
+connectors once it is tested costs nothing and saves a callout to yourself.
+
 ### Which way to set the jumper
 
 **Start on HIGH.** The firmware ships configured for it

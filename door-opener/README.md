@@ -95,6 +95,57 @@ exactly the conditions where you need the door to work, and a router reboot
 costs this loop one poll and no configuration. Two seconds of latency on a
 door is nothing.
 
+### What the polling costs
+
+A 2 second poll is not free, and this is the one number worth knowing
+before you pick a provider or a plan:
+
+| Poll interval | Requests per month |
+| --- | --- |
+| 2s (shipped default) | 1,296,000 |
+| 3s | 864,000 |
+| 5s | 518,400 |
+| 10s | 259,200 |
+| 30s | 86,400 |
+
+That is a floor, not a peak. The board polls at that rate all month whether
+anyone touches the door or not, which is the tradeoff for the design being
+this simple.
+
+Check it against your plan's function invocation allowance before you
+assume the free tier covers it, because 1.3 million a month is above most
+free tiers. If it does not fit, the lever is `POLL_INTERVAL_MS` in
+`door_opener.ino`, and the table above says exactly what each setting buys.
+Five seconds is still a door that opens while you are putting your phone
+back in your pocket.
+
+One thing that is not a problem: providers that pause idle free projects
+will never pause this one. A poll every few seconds is continuous activity.
+
+### Why Supabase and not the database your page host offers
+
+Netlify, Vercel and the rest now all sell a Postgres, and any real Postgres
+can run this schema: `FOR UPDATE SKIP LOCKED` is not exotic.
+
+Two reasons to keep them separate anyway.
+
+The first is that a database alone is not what this needs. The logic that
+matters, checking a pass against every stored hash and claiming a command,
+has to run somewhere server side holding a key the browser never sees.
+Moving the database to your page host means moving those three functions
+there too, so it is not a simpler stack, only a differently shaped one.
+Supabase also puts PostgREST in front of the database, which is why these
+functions call RPCs over HTTPS and never think about connection pools, a
+thing serverless code and raw Postgres connections are famously bad at
+together.
+
+The second is the one that decides it. The page and the door already live
+on different providers, and that independence is worth keeping. A Netlify
+outage takes the page down and the ESP32 carries on polling Supabase, so
+the curl in step 6 still opens the door. Put both on the same provider and
+one status page can take out the page and the door together. That is the
+same reasoning that keeps the home controller out of the path.
+
 ### Why the ESP32 is the only claimer
 
 `door_claim()` is the single path that consumes a command, and only
@@ -671,6 +722,10 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
   There is no sensor and no path back from the relay. The ESP32 claims
   within 2 seconds, and the success screen counts down a window in which to
   push. If the board is offline the page still says the door opened.
+- **The board polls all month whether anyone uses the door or not.** At the
+  shipped 2 second interval that is about 1.3 million function invocations
+  a month, which is above most free tiers. See **What the polling costs**
+  above; `POLL_INTERVAL_MS` is the lever.
 - **Response time grows with the number of passes.** Every pass is hashed on
   every attempt, which is what keeps the timing flat. Roughly 55ms per pass,
   so 20 passes is about 1.1 seconds. Past 40 or so, prune long dead ones.

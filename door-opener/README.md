@@ -125,42 +125,50 @@ Only one run needs buying: **relay COM and NO to the intercom**. The F to F
 jumpers that came with the board cover ESP32 to relay, which is three short
 hops inside the same box.
 
-**2 core stranded, 0.5mm2 (about 20 AWG).** Alarm cable, bell wire or
-figure 8 speaker cable all work and all cost nothing. Five metres is more
-than enough and leaves slack for a second attempt.
+**Tinned copper, stranded, 2 core, 20 AWG (0.5mm2).** Sold as automotive,
+marine or lamp cord. Five metres is plenty and leaves slack for a second
+attempt.
 
-Why 0.5mm2 specifically: you do not yet know what that button carries. In
-some intercoms the release button switches the door strike coil directly,
-which is on the order of an amp. In others it is a signal to the intercom's
-own electronics, which is milliamps. 0.5mm2 covers both without having to
-find out, drops no meaningful voltage over a run this short, and still fits
-the relay's screw terminals comfortably.
+Why each part of that matters:
 
-Get **stranded, not solid core**. Solid core work hardens and snaps where it
-flexes going into a wall box, and this run will get moved at least twice
-while you are fitting it.
+- **20 AWG** because you do not yet know what the button carries. In some
+  intercoms the release button switches the strike coil directly, on the
+  order of an amp. In others it is a milliamp signal to the intercom's own
+  electronics. 20 AWG covers both without having to find out, drops nothing
+  over a run this short, and fits the relay's screw terminals comfortably.
+- **Stranded, not solid.** Solid core work hardens and snaps where it flexes
+  going into a wall box, and this run will get moved at least twice while
+  you are fitting it.
+- **Tinned** means every strand is tin plated. It does not oxidise, so screw
+  terminals stay low resistance for years, it solders almost by itself, and
+  it is the metal the quick splice connectors below are designed to bite
+  into. This is the one upgrade worth paying for.
+- **Copper, not copper clad aluminium.** See below if you already have CCA.
 
 **Polarity does not matter.** COM and NO are a dry contact, which is to say
 a switch. There is no correct way round, so any two conductors will do and
 the colours are for your own sanity rather than for the circuit.
 
-### If your cable is CCA
+When ordering, check you are getting **2 conductor** cable and not a single
+conductor spool. Two separate spools in different colours work just as well.
 
-Copper clad aluminium is an aluminium core with a thin copper skin. It is
-what most cheap red and black 12V speaker cable is, and 20 AWG CCA is fine
-here: aluminium carries about 61% of what copper does, so it behaves like
-22 AWG copper, which over a three metre run at an amp drops about a third
-of a volt. On a 12V strike that is nothing.
+### If you already have copper clad aluminium
 
-Two habits make it last, both because the aluminium underneath creeps under
-pressure in a way copper does not:
+CCA is an aluminium core with a thin copper skin, and it is what most cheap
+red and black 12V speaker cable is. It will work here. 20 AWG CCA behaves
+like 22 AWG copper, because aluminium carries about 61% of what copper
+does, which over three metres at an amp costs about a third of a volt. On a
+12V strike that is nothing.
+
+The difference is not conductivity, it is that the aluminium underneath
+creeps under pressure in a way copper does not. Two habits cover it:
 
 - **Re-tighten the relay's screw terminals a week after fitting.** The core
-  will have relaxed slightly. This is the whole trick with aluminium and it
+  will have relaxed slightly. That is the whole trick with aluminium and it
   takes ten seconds.
-- **Solder any cable to cable joint rather than crimping or splicing it.**
-  CCA solders well, because the surface the solder wets is copper. Solder
-  the two wires together, heatshrink over it, done.
+- **Solder any cable to cable joint rather than splicing it.** CCA solders
+  well, because the surface the solder wets is copper. Solder the two wires
+  together, heatshrink over it, done.
 
 That second point does not contradict the ferrule advice above. Soldering
 two wires to each other is a good joint. Tinning a wire end that then goes
@@ -169,13 +177,15 @@ loosens. Both are still true.
 
 ### About the quick splice connectors
 
-The solderless, no stripping kind work by pressing a blade through the
-insulation into the conductor. They are quick, and on solid copper they are
-fine.
+The solderless, no stripping kind press a blade through the insulation into
+the conductor.
 
-On stranded CCA they are the least reliable joint in this build. The blade
-cuts through the copper skin into the aluminium underneath, which then has
-a freshly exposed surface to oxidise, against a dissimilar metal, under a
+**On tinned copper they are fine.** That is exactly what they are built
+for, and there is nothing to think about.
+
+**On stranded CCA they are the weakest joint in the build.** The blade cuts
+through the copper skin into the aluminium underneath, which then has a
+freshly exposed surface to oxidise, against a dissimilar metal, under a
 pressure the aluminium slowly creeps away from. Aluminium oxide is an
 insulator, unlike copper oxide, so the joint gets worse rather than
 settling.
@@ -183,7 +193,7 @@ settling.
 None of that is fast or dramatic. It is a door that works for eight months
 and then starts needing two presses.
 
-So prefer, in this order:
+So on CCA, prefer in this order:
 
 1. The intercom's own screw terminal, if it has one.
 2. Soldered and heatshrunk.
@@ -191,7 +201,7 @@ So prefer, in this order:
 4. A quick splice, if there is genuinely nothing else.
 
 If you do end up using one, note where it is. When the door gets flaky
-months from now, that joint is the first thing to check and the log on the
+months from now, that joint is the first thing to check, and the log on the
 kiosk will tell you when it started.
 
 ### Before you cut anything

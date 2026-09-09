@@ -56,6 +56,37 @@ Three separate keys, three separate blast radii:
 
 Rotate any one of them without touching the others.
 
+### What actually drives the relay
+
+One wire, GPIO26, and three lines of firmware:
+
+```c
+digitalWrite(RELAY_PIN, RELAY_ON);
+delay(PULSE_MS);            // one second
+digitalWrite(RELAY_PIN, RELAY_OFF);
+```
+
+The pin swings between 0V and 3.3V. That is the whole control signal. It
+drives the LED inside the module's optocoupler, the phototransistor on the
+other side of that LED switches the coil, the coil closes the contacts, and
+the contacts are what sits across the intercom's button.
+
+So there are three electrically separate stages between the firmware and
+the door: the ESP32 side never shares a connection with the coil side, and
+the coil side never shares one with the contacts. Nothing the software can
+do puts a voltage on the intercom, and nothing the intercom does can reach
+the ESP32.
+
+**No computer is involved in opening the door.** The Surface Book is not in
+the path, and neither is any machine on the LAN. The ESP32 talks to
+Supabase over outbound HTTPS on the flat's WiFi and takes its instructions
+from there. A USB cable is needed once to flash it, and after that only for
+5V, which a phone charger supplies.
+
+Nothing can connect *to* the board either. It opens connections outwards
+and listens on nothing, which is why there is no port forward anywhere in
+this design.
+
 ### Why polling, not Realtime
 
 The ESP32 polls every 2 seconds rather than holding a Supabase Realtime
@@ -379,6 +410,12 @@ watch the serial monitor at 115200.
 **Do the bench test in the Hardware section above before wiring anything to
 the intercom.** It is the step that tells you the jumper is right, and the
 one that catches a relay that fires on reset.
+
+Once it is flashed, unplug it from the computer and put it on a phone
+charger. The USB cable was only ever for flashing and for reading the
+serial log; after that it is just 5V. Nothing about the door needs a
+computer, and the board is not reachable from one. It makes outbound HTTPS
+requests and accepts no connections.
 
 ### 5. Your first pass
 

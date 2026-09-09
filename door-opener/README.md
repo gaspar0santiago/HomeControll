@@ -414,13 +414,40 @@ bought does what it should.
 
 ### 2. Database
 
-Create a Supabase project. In the SQL editor, paste and run
-[`supabase/schema.sql`](supabase/schema.sql). That creates three tables with
-row level security on and **no policies**, plus the functions the Edge
-Functions call.
+Create a Supabase project. The creation form has a few choices that matter
+here:
 
-No policies is the point. Anon and authenticated can read and write nothing.
-Only the service role key, which never leaves the Edge Functions, gets in.
+| Field | Set it to | Why |
+| --- | --- | --- |
+| GitHub | **leave disconnected** | It deploys schema changes on push, expects `supabase/` at the repo root (this one is under `door-opener/`), and there are no migrations to deploy: the schema is one paste, not a chain. Mostly it would tie a git push to the live door's database, which is exactly the blast radius the rest of this design avoids. Connect it later if you ever want it |
+| Region | the closest one | Sydney, `ap-southeast-2`, for Wellington. There is no New Zealand region. Latency is irrelevant to a 2 second poll, but there is no reason to pick a far one |
+| Database password | generate one and save it | Needed once, to link the CLI. The door itself never uses it |
+| **Enable Data API** | **ON, and leave it on** | The ESP32 calls `door_claim()` through PostgREST. Turn this off and `/rest/v1/rpc/door_claim` does not exist, the board polls into a void, and nothing says why |
+| Automatically expose new tables | **off** | Supabase recommends off, and so does this schema. The schema revokes every grant from `anon` and `authenticated` anyway, so the end state is the same either way; off just means a table added by hand later starts closed rather than open |
+| Enable automatic RLS | on, if you like | Belt and braces. The schema already enables and forces RLS on all four of its tables, so this changes nothing today. It only matters for a table someone adds later |
+
+Turning the Data API off feels like the secure choice and is the one
+setting here that would quietly break the door. What actually protects
+these tables is RLS with no policies plus revoked grants, which is on
+regardless, not whether the API exists.
+
+Then in the SQL editor, paste and run
+[`supabase/schema.sql`](supabase/schema.sql), all 430 lines of it. That
+creates four tables with row level security on and **no policies**, plus
+every function.
+
+No policies is the point. Anon and authenticated can read and write nothing
+directly. The only thing `anon` may do at all is call `door_claim()`, which
+then demands the device key.
+
+Check it landed:
+
+```sql
+select * from door_pass_status;
+```
+
+An empty table with the right columns means the whole file ran. An error
+means the paste was truncated.
 
 ### 3. Keys and Edge Functions
 

@@ -509,6 +509,22 @@ Do not paste a key into a chat, an issue, or anywhere it gets stored. The
 whole point of hashing it is that nothing but the board ever holds the
 plaintext.
 
+Each run gives you two things, and they go to two different places:
+
+| Output | Where it goes |
+| --- | --- |
+| the `insert into door_keys` statement, which carries only a hash | the SQL editor |
+| the key itself, 43 characters | the ESP32's `config.h`, or the `DOOR_DASHBOARD_KEY` secret |
+
+**Both must come from the same run.** Running the snippet again to
+"re-copy" a key produces an entirely new one, whose hash is not the one in
+the table. Nothing catches that: `door-events` answers 401 forever, and the
+board polls cleanly and never opens the door, because `door_claim`
+deliberately returns no rows for a wrong key rather than an error. Both
+failures are silent and both look like something else. If you are unsure
+which run a key came from, generate a fresh pair and re-run the insert; it
+upserts.
+
 Only hashes reach the database, so the plaintext never appears in a query
 log. Keep both somewhere you can paste from; each is needed once more.
 

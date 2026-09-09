@@ -385,14 +385,62 @@ Then tighten two things now that you know your URLs:
 
 ### 4. The ESP32
 
+There is no setup portal and no web page on the board. Configuration is a
+header file that gets compiled in, so changing any of it means editing
+`config.h` and uploading again. That is on purpose: a board with no config
+interface has no config interface to attack, and this one has WiFi
+credentials and a door key on it.
+
+**First, the tools.** Once only:
+
+1. Install the Arduino IDE from arduino.cc.
+2. **File > Preferences > Additional boards manager URLs**, paste:
+   `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
+3. **Tools > Board > Boards Manager**, search `esp32`, install
+   **esp32 by Espressif Systems**.
+4. **Tools > Board > esp32 > ESP32 Dev Module**.
+
+**Then the config:**
+
 ```bash
 cd firmware/door_opener
 cp config.h.example config.h
 $EDITOR config.h
 ```
 
-Fill in the WiFi credentials, the `door-poll` URL, and the same
-`DOOR_DEVICE_KEY` you set in step 2.
+`config.h` sits next to the sketch and is gitignored, so your WiFi password
+and device key never reach the repo. Open `door_opener.ino` in the Arduino
+IDE and `config.h` appears as a second tab, which is usually easier than
+editing it separately.
+
+**Do the bench test before you fill anything in.** With
+`DOOR_BENCH_TEST 1`, the sketch returns out of `setup()` before it touches
+WiFi, so the placeholder values in `config.h` are fine and you do not need
+Supabase to exist yet. Flash it, watch the relay, prove the jumper. Then
+come back and fill in the real values with `DOOR_BENCH_TEST 0`.
+
+For the real run, fill in the WiFi credentials, the `door-poll` URL, and
+the same `DOOR_DEVICE_KEY` you set in step 2.
+
+**The WiFi must be 2.4GHz.** The ESP32 has no 5GHz radio at all. If your
+router publishes one merged SSID for both bands this usually still works,
+but if the board never connects and the credentials are definitely right,
+this is why: split the bands or use the 2.4GHz SSID.
+
+**To upload:** plug in USB, pick the port under **Tools > Port** (on
+Windows it shows as Silicon Labs CP210x), and press the arrow. Watch it at
+115200 with **Tools > Serial Monitor**.
+
+Three things that go wrong on a first upload:
+
+| Symptom | Fix |
+| --- | --- |
+| No port listed at all | Install the Silicon Labs CP210x VCP driver. Also try a different cable: plenty of USB cables are charge only and have no data lines |
+| `Failed to connect ... Timed out waiting for packet header` | Hold the **BOOT** button while it prints `Connecting....`, release once the upload starts. Some boards auto-reset reliably and some do not |
+| Upload starts then fails partway | Drop **Tools > Upload Speed** to 115200 |
+
+Also close the Serial Monitor before uploading. It holds the port open and
+the upload will fail with a busy port.
 
 Then paste the root certificate. While `SUPABASE_ROOT_CA` is empty the board
 works but does not verify who it is talking to, and prints a warning on every

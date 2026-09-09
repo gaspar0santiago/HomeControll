@@ -6,6 +6,9 @@
 #pragma once
 
 // ── WiFi ──────────────────────────────────────────────────────
+// Must be a 2.4GHz network. The ESP32 has no 5GHz radio at all. A merged
+// SSID covering both bands usually works; if the board never connects and
+// the password is definitely right, this is why.
 #define WIFI_SSID       "your-wifi"
 #define WIFI_PASSWORD   "your-wifi-password"
 

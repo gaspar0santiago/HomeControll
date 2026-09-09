@@ -1,7 +1,10 @@
 // Street door opener, device end.
 //
-// Polls the door-poll Edge Function every 2 seconds. If a command is
-// waiting it claims it and pulses the relay for one second. The relay
+// Polls door_claim() through Supabase's REST API every 2 seconds. If a
+// command is waiting it claims it and pulses the relay for one second. The
+// claim is a single SELECT ... FOR UPDATE SKIP LOCKED inside Postgres, so
+// two pollers can never take the same command and one command can never
+// open the door twice. The relay
 // contacts sit in parallel with the intercom's existing release button, so
 // a claimed command is indistinguishable from a finger on that button, and
 // the button keeps working whatever this board is doing.
@@ -36,6 +39,7 @@
 // config.h and run it on the desk.
 
 #include <WiFi.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 
@@ -139,13 +143,16 @@ static PollResult pollOnce() {
   // seconds costs this chip more than the request does.
   http.setReuse(true);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-device-key", DOOR_DEVICE_KEY);
+  http.addHeader("apikey", SUPABASE_ANON_KEY);
+  http.addHeader("Authorization", "Bearer " SUPABASE_ANON_KEY);
 
-  int status = http.POST("{\"device\":\"" DOOR_DEVICE_NAME "\"}");
+  int status = http.POST(
+    "{\"p_device\":\"" DOOR_DEVICE_NAME "\",\"p_key\":\"" DOOR_DEVICE_KEY "\"}");
 
   if (status != 200) {
-    if (status == 401) {
-      Serial.println("[poll] rejected: DOOR_DEVICE_KEY does not match the one set on the function");
+    if (status == 401 || status == 403) {
+      Serial.println("[poll] rejected: check SUPABASE_ANON_KEY, and that the");
+      Serial.println("[poll] schema granted execute on door_claim to anon");
     } else if (status < 0) {
       Serial.printf("[poll] transport error %d (%s)\n", status, http.errorToString(status).c_str());
     } else {
@@ -158,15 +165,45 @@ static PollResult pollOnce() {
   String body = http.getString();
   http.end();
 
-  // Deliberately narrow. Only an explicit true opens anything, so a
-  // truncated body, an error page or an empty response all mean no.
-  bool open = body.indexOf("\"open\":true") >= 0 || body.indexOf("\"open\": true") >= 0;
+  // PostgREST returns [] with nothing waiting, or [{"command_id":123}].
+  //
+  // Deliberately narrow. Only a body actually carrying a command_id opens
+  // anything, so [], an error object, a truncated response and an HTML
+  // error page all mean no. A wrong device key also lands here, because
+  // door_claim returns no rows rather than an error: the board cannot tell
+  // a bad key from a quiet door, and neither can anyone watching it.
+  bool open = body.indexOf("command_id") >= 0;
 
   if (open) {
     Serial.printf("[poll] command claimed: %s\n", body.c_str());
     return POLL_OPEN;
   }
   return POLL_NOTHING;
+}
+
+// ── HOME CONTROLLER NOTIFY ────────────────────────────────────
+// Fire and forget, over plain HTTP on the LAN, after the door has already
+// opened. It exists so the kiosk can flash a bulb promptly without polling
+// Supabase every few seconds, which on a 2 second cadence would cost more
+// invocations than the door itself.
+//
+// Nothing waits on this and every failure is ignored. The controller being
+// off, rebooting or unplugged has no effect on the door whatsoever.
+static void notifyHomeController() {
+  if (strlen(HOME_CONTROLLER_NOTIFY_URL) == 0) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClient lan;
+  HTTPClient notify;
+  if (!notify.begin(lan, HOME_CONTROLLER_NOTIFY_URL)) return;
+
+  notify.setTimeout(1500);
+  notify.setConnectTimeout(1500);
+  notify.addHeader("Content-Type", "application/json");
+  int status = notify.POST("{\"device\":\"" DOOR_DEVICE_NAME "\"}");
+  notify.end();
+
+  if (status <= 0) Serial.println("[notify] home controller unreachable, ignoring");
 }
 
 // ── BENCH TEST ────────────────────────────────────────────────
@@ -250,6 +287,8 @@ void loop() {
 
   if (result == POLL_OPEN) {
     pulseRelay();
+    // After the pulse, never before. The door does not wait on this.
+    notifyHomeController();
   }
 
   if (result == POLL_FAILED) {

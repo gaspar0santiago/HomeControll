@@ -119,33 +119,70 @@ revoke all on public.door_passes   from anon, authenticated;
 revoke all on public.door_commands from anon, authenticated;
 revoke all on public.door_attempts from anon, authenticated;
 
+-- ── DEVICE KEYS ───────────────────────────────────────────────
+-- Only hashes. The ESP32 reaches door_claim through PostgREST rather than
+-- through an Edge Function, because a 2 second poll is 1.3 million calls a
+-- month and the REST API is the part with unlimited requests. That means
+-- the check that used to live in Deno lives here instead.
+--
+-- Plain SHA-256, not PBKDF2. These keys are 256 bits of randomness from
+-- tools/make-key.js, so there is no dictionary to stretch against; the
+-- iteration count on the pass hashes exists because humans type those.
+create table if not exists public.door_keys (
+  name       text primary key,
+  hash       text not null check (hash ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz not null default now()
+);
+
+alter table public.door_keys enable row level security;
+alter table public.door_keys force row level security;
+revoke all on public.door_keys from anon, authenticated;
+
 -- ── CLAIM: THE ONLY WAY A COMMAND IS CONSUMED ─────────────────
--- Called by the door-poll Edge Function on behalf of the ESP32, and by
--- nothing else. SELECT ... FOR UPDATE SKIP LOCKED is what makes this safe:
--- the subquery takes a row lock before the UPDATE touches the row, so two
--- pollers racing get two different rows or nothing, never the same one.
--- A claimed row sets claimed_at, and the WHERE clause never sees it again,
--- so one command can never open the door twice.
-create or replace function public.door_claim(p_device text default 'esp32')
+-- Called by the ESP32 and by nothing else. SELECT ... FOR UPDATE SKIP
+-- LOCKED is what makes this safe: the subquery takes a row lock before the
+-- UPDATE touches the row, so two pollers racing get two different rows or
+-- nothing, never the same one. A claimed row sets claimed_at, and the WHERE
+-- clause never sees it again, so one command can never open the door twice.
+--
+-- EXECUTE is granted to anon, because the board authenticates with the
+-- Supabase anon key plus its own device key. The anon key alone is worth
+-- nothing here: RLS is on with no policies, anon holds no table grants, and
+-- every other function is still revoked from it. Without the device key
+-- this returns no rows, which is also exactly what it returns when there is
+-- simply nothing waiting, so a wrong key cannot be told apart from a quiet
+-- door.
+create or replace function public.door_claim(p_device text, p_key text)
 returns table (command_id bigint)
-language sql
+language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-  update public.door_commands c
-     set claimed_at = now(),
-         claimed_by = p_device
-   where c.claimed_at is null
-     and c.id = (
-       select d.id
-         from public.door_commands d
-        where d.claimed_at is null
-          and d.expires_at > now()
-        order by d.id
-          for update skip locked
-        limit 1
-     )
-  returning c.id;
+begin
+  if not exists (
+    select 1 from public.door_keys
+     where name = 'device'
+       and hash = encode(sha256(coalesce(p_key, '')::bytea), 'hex')
+  ) then
+    return;
+  end if;
+
+  return query
+    update public.door_commands c
+       set claimed_at = now(),
+           claimed_by = left(coalesce(p_device, 'esp32'), 64)
+     where c.claimed_at is null
+       and c.id = (
+         select d.id
+           from public.door_commands d
+          where d.claimed_at is null
+            and d.expires_at > now()
+          order by d.id
+            for update skip locked
+          limit 1
+       )
+    returning c.id;
+end;
 $$;
 
 -- ── LOCKOUT ───────────────────────────────────────────────────
@@ -302,7 +339,7 @@ as $$
    where at < now() - make_interval(days => greatest(coalesce(p_keep_days, 30), 1));
 $$;
 
-revoke execute on function public.door_claim(text)                        from public, anon, authenticated;
+revoke execute on function public.door_claim(text, text)                  from public, authenticated;
 revoke execute on function public.door_ip_locked(text, integer, integer)  from public, anon, authenticated;
 revoke execute on function public.door_globally_throttled(integer, integer) from public, anon, authenticated;
 revoke execute on function public.door_log_attempt(text, text)            from public, anon, authenticated;
@@ -310,7 +347,8 @@ revoke execute on function public.door_consume(uuid, text, integer)       from p
 revoke execute on function public.door_recent_events(integer)             from public, anon, authenticated;
 revoke execute on function public.door_gc(integer)                        from public, anon, authenticated;
 
-grant execute on function public.door_claim(text)                          to service_role;
+-- The board holds the anon key and its own device key. See door_claim.
+grant execute on function public.door_claim(text, text)                    to anon, service_role;
 grant execute on function public.door_ip_locked(text, integer, integer)    to service_role;
 grant execute on function public.door_globally_throttled(integer, integer) to service_role;
 grant execute on function public.door_log_attempt(text, text)              to service_role;

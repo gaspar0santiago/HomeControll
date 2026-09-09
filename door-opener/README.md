@@ -86,19 +86,28 @@ the worst possible failure for a door.
 ```
    ESP32                          relay module
   ---------                     ----------------
-   GPIO26  ---------------->  IN      (trigger)
-   VIN     ---------------->  DC+     (5V)
-   GND     ---------------->  DC-
+   GPIO26   --------------->  IN      (trigger)
+   VIN / 5V --------------->  DC+     (5V)
+   GND      --------------->  GND / DC-
 
                                COM  ----+
                                         |--- across the intercom's
                                NO   ----+    existing release button
 ```
 
-**DC+ goes to VIN, not to 3V3.** VIN is the board's USB 5V rail. A 5V relay
-coil will not pull in reliably at 3.3V: it may buzz, half latch, or work on
-the bench and fail in the cold. This is the one wiring mistake that produces
-a door which mostly works.
+**DC+ goes to VIN, not to 3V3.** VIN is the board's USB 5V rail. Some
+boards, USB-C ones especially, label that same pin `5V` instead; either way
+it is the pin next to GND at the bottom of the left header, and it is the
+one you want.
+
+A 5V relay coil will not pull in reliably at 3.3V: it may buzz, half latch,
+or work on the bench and fail in the cold. This is the one wiring mistake
+that produces a door which mostly works.
+
+Some boards diode-isolate VIN from USB 5V, so it reads nearer 4.7V than
+5.0V under USB power. That is still comfortably above a 5V relay's pull-in
+voltage. If the relay is unreliable, measure VIN before blaming anything
+else.
 
 If you did get 12V modules, they cannot be powered from this board at all.
 They need a separate 12V supply, with that supply's negative tied to ESP32
@@ -162,6 +171,14 @@ another before assuming the wiring is wrong.
 USB from any phone charger. The relay coil draws about 70mA while
 energised and the ESP32 peaks near 250mA on WiFi transmit, so a 500mA
 supply is plenty.
+
+**If your board is USB-C and it will not power up, try a USB-A to C cable.**
+Plenty of cheap USB-C dev boards leave out the two 5.1k CC pull-down
+resistors that tell a USB-C charger something is plugged in. Without them a
+C to C cable into a C charger delivers no power at all, because the charger
+never enables VBUS. An A to C cable always works, because USB-A has 5V
+present with no negotiation. A dead board on a C to C cable is almost
+always this and not a fault.
 
 Windows usually installs the CP2102 driver by itself. If no COM port
 appears, install Silicon Labs' CP210x VCP driver.

@@ -15,7 +15,8 @@
 //
 //   ESP32 GPIO26  ->  IN     (the trigger)
 //   ESP32 VIN     ->  DC+    (5V, NOT 3V3: a 5V coil will not pull in
-//                             reliably at 3.3V, and VIN is the USB 5V rail)
+//                             reliably at 3.3V. Some boards, USB-C ones
+//                             especially, label this pin 5V instead)
 //   ESP32 GND     ->  DC-
 //
 //   relay COM and NO  ->  across the intercom's existing release button

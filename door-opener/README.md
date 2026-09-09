@@ -56,6 +56,37 @@ Three separate keys, three separate blast radii:
 
 Rotate any one of them without touching the others.
 
+### What actually drives the relay
+
+One wire, GPIO26, and three lines of firmware:
+
+```c
+digitalWrite(RELAY_PIN, RELAY_ON);
+delay(PULSE_MS);            // one second
+digitalWrite(RELAY_PIN, RELAY_OFF);
+```
+
+The pin swings between 0V and 3.3V. That is the whole control signal. It
+drives the LED inside the module's optocoupler, the phototransistor on the
+other side of that LED switches the coil, the coil closes the contacts, and
+the contacts are what sits across the intercom's button.
+
+So there are three electrically separate stages between the firmware and
+the door: the ESP32 side never shares a connection with the coil side, and
+the coil side never shares one with the contacts. Nothing the software can
+do puts a voltage on the intercom, and nothing the intercom does can reach
+the ESP32.
+
+**No computer is involved in opening the door.** The Surface Book is not in
+the path, and neither is any machine on the LAN. The ESP32 talks to
+Supabase over outbound HTTPS on the flat's WiFi and takes its instructions
+from there. A USB cable is needed once to flash it, and after that only for
+5V, which a phone charger supplies.
+
+Nothing can connect *to* the board either. It opens connections outwards
+and listens on nothing, which is why there is no port forward anywhere in
+this design.
+
 ### Why polling, not Realtime
 
 The ESP32 polls every 2 seconds rather than holding a Supabase Realtime
@@ -78,32 +109,249 @@ the worst possible failure for a door.
 
 | Part | Notes |
 | --- | --- |
-| ESP32 dev board | any of them; the sketch uses the Arduino core |
-| Single channel opto isolated relay module | 3.3V logic, active low on almost every cheap one |
+| ESP32 DevKit, 30 pin, WROOM-32 with CP2102 | The board in the pinout diagram everyone has. Arduino core for ESP32 |
+| Single channel opto isolated relay module | **Get the 5V version.** The 12V one needs its own supply |
+
+### Wiring
 
 ```
-  ESP32 GPIO 26  ->  IN
-  ESP32 3V3      ->  VCC
-  ESP32 GND      ->  GND
+   ESP32                          relay module
+  ---------                     ----------------
+   GPIO26   --------------->  IN      (trigger)
+   VIN / 5V --------------->  DC+     (5V)
+   GND      --------------->  GND / DC-
 
-  relay COM and NO  ->  across the intercom's existing release button
+                               COM  ----+
+                                        |--- across the intercom's
+                               NO   ----+    existing release button
 ```
 
-The ESP32 never touches the 12V line. The relay contacts are dry, the opto
-isolator keeps the two sides electrically separate, and the module runs off
-the board's 3V3 rail. Wiring in parallel with the button means the button is
-unaffected: press it and the door opens exactly as before.
+**DC+ goes to VIN, not to 3V3.** VIN is the board's USB 5V rail. Some
+boards, USB-C ones especially, label that same pin `5V` instead; either way
+it is the pin next to GND at the bottom of the left header, and it is the
+one you want.
 
-Worth adding: a 10k pull-up from IN to 3V3 on an active low module. During a
-reset the ESP32's pins revert to inputs and IN floats for a few
-milliseconds. Most modules have their own pull-up and are fine; the resistor
-makes it certain.
+A 5V relay coil will not pull in reliably at 3.3V: it may buzz, half latch,
+or work on the bench and fail in the cold. This is the one wiring mistake
+that produces a door which mostly works.
+
+Some boards diode-isolate VIN from USB 5V, so it reads nearer 4.7V than
+5.0V under USB power. That is still comfortably above a 5V relay's pull-in
+voltage. If the relay is unreliable, measure VIN before blaming anything
+else.
+
+If you did get 12V modules, they cannot be powered from this board at all.
+They need a separate 12V supply, with that supply's negative tied to ESP32
+GND so IN has a common reference. Simpler to use a 5V module.
+
+The ESP32 never touches the intercom's 12V line either way. The relay
+contacts are dry and the opto isolator keeps the two sides electrically
+separate, so the coil side and the door side share nothing but the two
+contact wires. Wiring COM and NO in parallel with the button means the
+button is unaffected: press it and the door opens exactly as before.
+
+### What wire to buy
+
+Only one run needs buying: **relay COM and NO to the intercom**. The F to F
+jumpers that came with the board cover ESP32 to relay, which is three short
+hops inside the same box.
+
+**Tinned copper, stranded, 2 core, 20 AWG (0.5mm2).** Sold as automotive,
+marine or lamp cord. Five metres is plenty and leaves slack for a second
+attempt.
+
+Why each part of that matters:
+
+- **20 AWG** because you do not yet know what the button carries. In some
+  intercoms the release button switches the strike coil directly, on the
+  order of an amp. In others it is a milliamp signal to the intercom's own
+  electronics. 20 AWG covers both without having to find out, drops nothing
+  over a run this short, and fits the relay's screw terminals comfortably.
+- **Stranded, not solid.** Solid core work hardens and snaps where it flexes
+  going into a wall box, and this run will get moved at least twice while
+  you are fitting it.
+- **Tinned** means every strand is tin plated. It does not oxidise, so screw
+  terminals stay low resistance for years, it solders almost by itself, and
+  it is the metal the quick splice connectors below are designed to bite
+  into. This is the one upgrade worth paying for.
+- **Copper, not copper clad aluminium.** See below if you already have CCA.
+
+**Polarity does not matter.** COM and NO are a dry contact, which is to say
+a switch. There is no correct way round, so any two conductors will do and
+the colours are for your own sanity rather than for the circuit.
+
+When ordering, check you are getting **2 conductor** cable and not a single
+conductor spool. Two separate spools in different colours work just as well.
+
+### If you already have copper clad aluminium
+
+CCA is an aluminium core with a thin copper skin, and it is what most cheap
+red and black 12V speaker cable is. It will work here. 20 AWG CCA behaves
+like 22 AWG copper, because aluminium carries about 61% of what copper
+does, which over three metres at an amp costs about a third of a volt. On a
+12V strike that is nothing.
+
+The difference is not conductivity, it is that the aluminium underneath
+creeps under pressure in a way copper does not. Two habits cover it:
+
+- **Re-tighten the relay's screw terminals a week after fitting.** The core
+  will have relaxed slightly. That is the whole trick with aluminium and it
+  takes ten seconds.
+- **Solder any cable to cable joint rather than splicing it.** CCA solders
+  well, because the surface the solder wets is copper. Solder the two wires
+  together, heatshrink over it, done.
+
+That second point does not contradict the ferrule advice above. Soldering
+two wires to each other is a good joint. Tinning a wire end that then goes
+under a screw is a bad one, because the solder cold flows and the screw
+loosens. Both are still true.
+
+### About the quick splice connectors
+
+The solderless, no stripping kind press a blade through the insulation into
+the conductor.
+
+**On tinned copper they are fine.** That is exactly what they are built
+for, and there is nothing to think about.
+
+**On stranded CCA they are the weakest joint in the build.** The blade cuts
+through the copper skin into the aluminium underneath, which then has a
+freshly exposed surface to oxidise, against a dissimilar metal, under a
+pressure the aluminium slowly creeps away from. Aluminium oxide is an
+insulator, unlike copper oxide, so the joint gets worse rather than
+settling.
+
+None of that is fast or dramatic. It is a door that works for eight months
+and then starts needing two presses.
+
+So on CCA, prefer in this order:
+
+1. The intercom's own screw terminal, if it has one.
+2. Soldered and heatshrunk.
+3. The relay's screw terminals, which the design requires anyway.
+4. A quick splice, if there is genuinely nothing else.
+
+If you do end up using one, note where it is. When the door gets flaky
+months from now, that joint is the first thing to check, and the log on the
+kiosk will tell you when it started.
+
+### Before you cut anything
+
+Look for terminals on the intercom first. A lot of door phones have a
+labelled pair for exactly this, something like `door release`, `DO`, or a
+push to exit input. Landing on a terminal block is far better than
+soldering to the back of the button: it is reversible, it is what the
+terminals are for, and it does not risk lifting a pad on a unit that is
+probably older than the lease.
+
+If there is no terminal and you do have to go to the button, put a
+multimeter across its contacts in continuity mode and press it. The pair
+that beeps is the pair you want, and the relay goes across those two.
+
+For the ends, use bootlace ferrules if you can get them. Do not tin
+stranded wire with solder for a screw terminal: solder cold flows under
+pressure and the joint quietly loosens over months, which is a hard fault
+to find later. Failing ferrules, twist the strands tight and do not
+overstrip, so nothing can splay into the neighbouring terminal.
+
+The dupont jumpers between the board and the relay are fine electrically
+but they work loose with vibration. A zip tie or a dab of hot glue over the
+connectors once it is tested costs nothing and saves a callout to yourself.
+
+### Which way to set the jumper
+
+**Start on HIGH.** The firmware ships configured for it
+(`RELAY_ACTIVE_LOW 0`).
+
+In HIGH mode the module's IN pin sits behind the optocoupler LED to ground,
+so an undriven pin cannot rise past the LED's forward voltage and the relay
+physically cannot close. Every reset, brownout, watchdog and reflash is
+safe by construction, with no extra components and without relying on the
+firmware getting its pin ordering right. In LOW mode an undriven pin is the
+ON state, which is the exact failure this design exists to avoid.
+
+The catch is that HIGH trigger drives the optocoupler straight from the
+ESP32's 3.3V, and this module is specified at 5mA trigger current. Whether
+3.3V clears that depends on the resistor the manufacturer fitted. It
+usually works. When it does not, it fails safe: the relay simply never
+clicks, which the bench test shows you in ten seconds.
+
+**LOW trigger fallback.** If HIGH will not click reliably:
+
+1. Move the jumper to LOW and set `RELAY_ACTIVE_LOW 1` in `config.h`.
+2. Add a **10k resistor from IN to 3V3**. This holds IN high during the
+   moments the ESP32 is not driving it, which is every reset. Pull it up to
+   3V3 and not to DC+: 5V on a GPIO would be outside what an ESP32 pin
+   tolerates.
+3. The sketch's `relaySafe()` already writes the pin level before switching
+   it to an output, which covers the software half. The resistor covers the
+   hardware half. You want both in this mode.
+
+### Bench test it first
+
+Set `DOOR_BENCH_TEST 1` in `config.h` and flash it with **nothing connected
+to the intercom**. It skips WiFi and Supabase entirely and pulses the relay
+every 5 seconds, printing what it is doing at 115200 baud.
+
+| What to watch | What it means |
+| --- | --- |
+| One click in, one click out per pulse, red LED with it | The jumper and wiring are right |
+| Nothing ever clicks | 3.3V is not driving the opto. Try the other jumper position |
+| Relay stays closed, buzzes, or double clicks | The OFF level is not reaching the module. See the LOW trigger fallback |
+| **Press EN a dozen times during the quiet gaps** | The relay must stay silent through every reset. **If it clicks on reset, stop and fix the jumper before this goes anywhere near the intercom** |
+
+Set `DOOR_BENCH_TEST` back to 0 before installing.
+
+You ordered three modules, so if one behaves oddly on the bench, try
+another before assuming the wiring is wrong.
+
+### Power
+
+USB from any phone charger. The relay coil draws about 70mA while
+energised and the ESP32 peaks near 250mA on WiFi transmit, so a 500mA
+supply is plenty.
+
+**If your board is USB-C and it will not power up, try a USB-A to C cable.**
+Plenty of cheap USB-C dev boards leave out the two 5.1k CC pull-down
+resistors that tell a USB-C charger something is plugged in. Without them a
+C to C cable into a C charger delivers no power at all, because the charger
+never enables VBUS. An A to C cable always works, because USB-A has 5V
+present with no negotiation. A dead board on a C to C cable is almost
+always this and not a fault.
+
+Windows usually installs the CP2102 driver by itself. If no COM port
+appears, install Silicon Labs' CP210x VCP driver.
 
 ---
 
 ## Setup, in order
 
-### 1. Database
+Each step is checkable on its own, and they are ordered so that nothing
+depends on something you have not built yet.
+
+Only two things genuinely need to exist before others: **Supabase before
+everything**, and **a pass before you can test anything**. The Netlify page
+and the ESP32 do not depend on each other at all, so their order is up to
+you, and the hardware can be proved on day one with neither.
+
+### 1. Prove the relay works
+
+Before anything else, and before any account exists anywhere. Set
+`DOOR_BENCH_TEST 1` in `config.h`, flash the board, and watch the relay.
+
+With that flag the sketch returns out of `setup()` before it touches WiFi,
+so the untouched `config.h.example` values are fine. No Supabase, no
+Netlify, no keys. Just the board, the relay and a USB cable.
+
+Full details, including what each failure looks like, are in
+**Bench test it first** in the Hardware section above. The one that matters:
+press EN a dozen times and the relay must stay silent through every reset.
+
+Do this the day the parts arrive. Everything below is software and can wait
+for a wet weekend; this is the step that tells you whether the hardware you
+bought does what it should.
+
+### 2. Database
 
 Create a Supabase project. In the SQL editor, paste and run
 [`supabase/schema.sql`](supabase/schema.sql). That creates three tables with
@@ -113,7 +361,7 @@ Functions call.
 No policies is the point. Anon and authenticated can read and write nothing.
 Only the service role key, which never leaves the Edge Functions, gets in.
 
-### 2. Edge Functions
+### 3. Edge Functions
 
 ```bash
 cd door-opener
@@ -137,30 +385,35 @@ supabase functions deploy door-events --no-verify-jwt
 Supabase account and no token: `door-open` authenticates with the pass
 itself, and the other two with their own keys.
 
-### 3. The page
-
-Edit [`public/config.js`](public/config.js) and put your project ref in
-`openUrl`. That is the only edit the page needs.
-
-In Netlify, create a site from this repo and set **Base directory** to
-`door-opener`. It reads `netlify.toml` from there and publishes `public/`.
-There is no build step.
-
-Or by hand:
+### 4. Your first pass
 
 ```bash
 cd door-opener
-netlify deploy --prod
+node tools/make-pass.js resident --label "Santi"
 ```
 
-Then tighten two things now that you know your URLs:
+It prints the pass once and the SQL to store it. Run the SQL in the Supabase
+SQL editor. The plaintext is never stored and cannot be recovered, so if you
+lose it, generate another.
 
-- `netlify.toml`: narrow `connect-src` from `https://*.supabase.co` to your
-  own project.
-- `.env`: set `DOOR_ALLOWED_ORIGIN` to the Netlify origin and re-run
-  `supabase secrets set --env-file .env`.
+### 5. The ESP32
 
-### 4. The ESP32
+There is no setup portal and no web page on the board. Configuration is a
+header file that gets compiled in, so changing any of it means editing
+`config.h` and uploading again. That is on purpose: a board with no config
+interface has no config interface to attack, and this one has WiFi
+credentials and a door key on it.
+
+**First, the tools.** Once only:
+
+1. Install the Arduino IDE from arduino.cc.
+2. **File > Preferences > Additional boards manager URLs**, paste:
+   `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
+3. **Tools > Board > Boards Manager**, search `esp32`, install
+   **esp32 by Espressif Systems**.
+4. **Tools > Board > esp32 > ESP32 Dev Module**.
+
+**Then the config:**
 
 ```bash
 cd firmware/door_opener
@@ -168,8 +421,34 @@ cp config.h.example config.h
 $EDITOR config.h
 ```
 
-Fill in the WiFi credentials, the `door-poll` URL, and the same
-`DOOR_DEVICE_KEY` you set in step 2.
+`config.h` sits next to the sketch and is gitignored, so your WiFi password
+and device key never reach the repo. Open `door_opener.ino` in the Arduino
+IDE and `config.h` appears as a second tab, which is usually easier than
+editing it separately.
+
+Step 1 needed none of this filled in. Now set `DOOR_BENCH_TEST` back to 0
+and fill in the WiFi credentials, the `door-poll` URL, and
+the same `DOOR_DEVICE_KEY` you set in step 3.
+
+**The WiFi must be 2.4GHz.** The ESP32 has no 5GHz radio at all. If your
+router publishes one merged SSID for both bands this usually still works,
+but if the board never connects and the credentials are definitely right,
+this is why: split the bands or use the 2.4GHz SSID.
+
+**To upload:** plug in USB, pick the port under **Tools > Port** (on
+Windows it shows as Silicon Labs CP210x), and press the arrow. Watch it at
+115200 with **Tools > Serial Monitor**.
+
+Three things that go wrong on a first upload:
+
+| Symptom | Fix |
+| --- | --- |
+| No port listed at all | Install the Silicon Labs CP210x VCP driver. Also try a different cable: plenty of USB cables are charge only and have no data lines |
+| `Failed to connect ... Timed out waiting for packet header` | Hold the **BOOT** button while it prints `Connecting....`, release once the upload starts. Some boards auto-reset reliably and some do not |
+| Upload starts then fails partway | Drop **Tools > Upload Speed** to 115200 |
+
+Also close the Serial Monitor before uploading. It holds the port open and
+the upload will fail with a busy port.
 
 Then paste the root certificate. While `SUPABASE_ROOT_CA` is empty the board
 works but does not verify who it is talking to, and prints a warning on every
@@ -182,28 +461,95 @@ openssl s_client -showcerts -connect YOUR-PROJECT-REF.supabase.co:443 </dev/null
 and paste the last certificate in the chain, BEGIN and END lines included.
 
 Flash `door_opener.ino` with the Arduino IDE (board: ESP32 Dev Module) and
-watch the serial monitor at 115200. **Before wiring it to the intercom**,
-confirm the relay clicks once per open and never on reset: press the reset
-button ten times with a pass unused and the relay must stay silent.
+watch the serial monitor at 115200.
 
-### 5. Your first pass
+If you skipped step 1, do it now, before wiring anything to the intercom.
+It is the step that tells you the jumper is right and catches a relay that
+fires on reset.
+
+Once it is flashed, unplug it from the computer and put it on a phone
+charger. The USB cable was only ever for flashing and for reading the
+serial log; after that it is just 5V. Nothing about the door needs a
+computer, and the board is not reachable from one. It makes outbound HTTPS
+requests and accepts no connections.
+
+### 6. Open the door with curl
+
+You now have everything except a nice way to type a pass. Prove it with
+curl before building one:
+
+```bash
+curl -X POST https://YOUR-PROJECT-REF.supabase.co/functions/v1/door-open \
+  -H 'content-type: application/json' \
+  -d '{"pass":"YOUR-PASS-HERE"}'
+```
+
+`{"ok":true,"reason":"opened","ttl":30}` and a click from the relay within
+two seconds means the whole chain works: the pass was checked server side, a
+command was queued, and the ESP32 claimed it and pulsed.
+
+What the failures tell you:
+
+| Response | Where to look |
+| --- | --- |
+| `{"ok":false,"reason":"unknown"}` | The pass is wrong, or the SQL insert never ran. Check `select * from door_pass_status` |
+| `ok:true` but no click | The board. Serial monitor at 115200 says whether it is polling, and a 401 there means `DOOR_DEVICE_KEY` does not match |
+| Connection refused or a 404 | The function is not deployed, or the project ref in the URL is wrong |
+
+Getting this far means the door works. The page is a front end for this one
+request.
+
+### 7. The page
+
+Edit [`public/config.js`](public/config.js) and put your project ref in
+`openUrl`. That is the only edit the page needs.
+
+**Connect Netlify to the repo rather than deploying by hand.** The page
+holds nothing secret: `config.js` has a public function URL and that is
+all, every decision is made server side, and the worst a bad deploy can do
+is break the page. The door keeps working, because the ESP32 and the
+intercom's own button do not depend on it. Against that, continuous
+deployment gets you versioned deploys, one click rollback, and no way to
+accidentally publish a stale local copy.
+
+Settings that matter when you create the site:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Base directory | `door-opener` | **Get this right or you get no security headers.** Netlify looks for `netlify.toml` in the base directory. Left at the repo root it finds nothing, and the CSP, HSTS and the rest silently do not exist |
+| Build command | empty | There is no build step and there should not be one |
+| Publish directory | `public` | Relative to the base directory |
+| Branch to deploy | `main` | Not a feature branch |
+| Deploy previews | off | There is no review workflow for this page, and fewer public copies of your door page is better hygiene |
+
+**Name the site something that does not identify the building.** The URL is
+not a secret and it is not what protects the door, the pass is. But a name
+that says which address it opens invites attempts you would otherwise never
+see, and every one of those is a row in your lockout table.
+
+Deploying by hand works too, and reads the same `netlify.toml`:
 
 ```bash
 cd door-opener
-node tools/make-pass.js resident --label "Santi"
+netlify deploy --prod
 ```
 
-It prints the pass once and the SQL to store it. Run the SQL in the Supabase
-SQL editor. The plaintext is never stored and cannot be recovered, so if you
-lose it, generate another.
+Then tighten two things now that you know your URLs:
 
-### 6. The kiosk panel (optional)
+- `netlify.toml`: narrow `connect-src` from `https://*.supabase.co` to your
+  own project.
+- `.env`: set `DOOR_ALLOWED_ORIGIN` to the Netlify origin and re-run
+  `supabase secrets set --env-file .env`. Once that is set, any other
+  origin is refused, which includes Netlify deploy previews. That is the
+  behaviour you want and another reason to leave previews off.
+
+### 8. The kiosk panel (optional)
 
 In `home-controller/.env`:
 
 ```
 DOOR_EVENTS_URL=https://YOUR-PROJECT-REF.supabase.co/functions/v1/door-events
-DOOR_DASHBOARD_KEY=the-dashboard-key-from-step-2
+DOOR_DASHBOARD_KEY=the-dashboard-key-from-step-3
 DOOR_FLASH_IP=192.168.68.61
 DOOR_QUIET_FROM=23:00
 DOOR_QUIET_TO=07:00
@@ -339,6 +685,11 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
 - **`DOOR_ALLOWED_ORIGIN` defaults to any origin** so the page works before
   you have a Netlify URL. CORS is not what protects this endpoint, but
   narrow it anyway once you know the URL.
+- **Whether HIGH trigger fires at 3.3V is not certain until you test it.**
+  The module is specified at 5mA trigger current and the ESP32 gives 3.3V
+  into whatever resistor the manufacturer fitted. It fails safe (the relay
+  never clicks) and the fallback is one 10k resistor, but it is a bench
+  test, not a guarantee.
 - **A stale root certificate stops the poller**, months from now, when the
   root rotates. The serial log says so plainly. The physical intercom button
   and everyone's keys are unaffected: it stops the web page working, not the
@@ -367,4 +718,5 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
 | `tools/make-pass.js` | Generates a pass, prints it once, prints the SQL |
 | `firmware/door_opener/door_opener.ino` | The ESP32 sketch |
 | `firmware/door_opener/config.h.example` | Copy to `config.h`, which is gitignored |
+| `firmware/test/` | Stubbed Arduino headers so CI can compile the sketch without a toolchain |
 | `.env.example` | Every value the whole system needs, and where each one goes |

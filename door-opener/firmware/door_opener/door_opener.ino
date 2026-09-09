@@ -9,20 +9,31 @@
 // Nothing forwards a port into the flat. This board makes outbound HTTPS
 // requests and nothing reaches in.
 //
-// Board:    ESP32 Dev Module (Arduino core for ESP32)
-// Wiring:   RELAY_PIN -> IN on the opto isolated relay module
-//           3V3       -> VCC
-//           GND       -> GND
-//           COM and NO -> across the intercom's release button
+// Board:    ESP32 Dev Module, 30 pin DevKit with CP2102
 //
-// The ESP32 never touches the 12V line. The relay contacts are dry, the
-// opto isolator keeps the two sides electrically separate, and the module
-// is powered from the board's 3V3 rail.
+// Wiring, for a 5V relay module:
 //
-// Worth adding in hardware: a 10k pull-up from IN to 3V3 on an active low
-// module. During a reset the ESP32's pins revert to inputs and IN floats
-// for a few milliseconds. Most modules have their own pull-up and are
-// fine; the resistor makes it certain rather than likely.
+//   ESP32 GPIO26  ->  IN     (the trigger)
+//   ESP32 VIN     ->  DC+    (5V, NOT 3V3: a 5V coil will not pull in
+//                             reliably at 3.3V. Some boards, USB-C ones
+//                             especially, label this pin 5V instead)
+//   ESP32 GND     ->  DC-
+//
+//   relay COM and NO  ->  across the intercom's existing release button
+//
+// A 12V module cannot be powered from this board at all. It needs its own
+// 12V supply, with that supply's negative tied to ESP32 GND so IN has a
+// common reference. Use the 5V version if you have one.
+//
+// The ESP32 never touches the intercom's 12V line either way. The relay
+// contacts are dry and the opto isolator keeps the two sides electrically
+// separate, so the coil side and the door side share nothing.
+//
+// Jumper: HIGH trigger by default. See the long note in config.h.example
+// for why, and for the fallback if HIGH will not click at 3.3V.
+//
+// Before wiring anything to the intercom, set DOOR_BENCH_TEST to 1 in
+// config.h and run it on the desk.
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -158,6 +169,31 @@ static PollResult pollOnce() {
   return POLL_NOTHING;
 }
 
+// ── BENCH TEST ────────────────────────────────────────────────
+#if DOOR_BENCH_TEST
+static const uint32_t BENCH_INTERVAL_MS = 5000;
+
+// Pulses the relay on a loop with no network at all, so the wiring and
+// the jumper can be proved on the desk. What to look for:
+//
+//   1. The red status LED and an audible click on every "release", and
+//      both stopping again a second later. If nothing clicks, the jumper
+//      is on the wrong setting or 3.3V is not enough to drive the opto:
+//      try the other jumper position.
+//   2. Nothing at all between pulses. A relay that stays closed, buzzes,
+//      or clicks twice means the OFF level is not reaching the module.
+//   3. Press EN on the board a dozen times during the quiet gaps. The
+//      relay must stay silent through every reset. If it clicks on reset,
+//      do not wire this to the intercom: that is the failure that would
+//      open the street door on every power cut.
+static void benchTest() {
+  Serial.println("[bench] relay off, waiting");
+  delay(BENCH_INTERVAL_MS);
+  Serial.println("[bench] pulsing now, expect one click in and one click out");
+  pulseRelay();
+}
+#endif
+
 // ── ARDUINO ───────────────────────────────────────────────────
 void setup() {
   // Before anything else. Serial, WiFi and TLS all take time, and the
@@ -168,8 +204,16 @@ void setup() {
   delay(200);
   Serial.println();
   Serial.println("[door] street door opener starting");
-  Serial.printf("[door] relay on pin %d, active %s\n",
-                RELAY_PIN, RELAY_ACTIVE_LOW ? "low" : "high");
+  Serial.printf("[door] relay on pin %d, %s trigger\n",
+                RELAY_PIN, RELAY_ACTIVE_LOW ? "LOW" : "HIGH");
+
+#if DOOR_BENCH_TEST
+  // No WiFi, no TLS, no Supabase. Nothing here can reach the door.
+  Serial.println("[bench] BENCH TEST MODE. Nothing is polled and no command");
+  Serial.println("[bench] can arrive. Set DOOR_BENCH_TEST to 0 in config.h");
+  Serial.println("[bench] before installing this.");
+  return;
+#endif
 
   if (strlen(SUPABASE_ROOT_CA) > 8) {
     tls.setCACert(SUPABASE_ROOT_CA);
@@ -186,6 +230,11 @@ void setup() {
 }
 
 void loop() {
+#if DOOR_BENCH_TEST
+  benchTest();
+  return;
+#endif
+
   if (millis() < nextPollAt) {
     delay(20);
     return;

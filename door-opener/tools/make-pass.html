@@ -149,8 +149,8 @@
     </div>
   </fieldset>
 
-  <fieldset id="fs-window" hidden>
-    <legend>Valid window</legend>
+  <fieldset id="fs-window">
+    <legend>Limits, all optional</legend>
 
     <div class="row">
       <label>Quick set</label>
@@ -168,18 +168,17 @@
     </div>
 
     <div class="row">
-      <label for="until">Ends</label>
+      <label for="until"><span id="until-label">Ends (leave empty for never)</span></label>
       <input type="datetime-local" id="until">
-      <p class="hint">
-        Read in this computer's timezone. A guest pass must end: a shared pass
-        with no end date is a permanent key sitting in a group chat.
+      <p class="hint" id="until-hint">
+        Read in this computer's timezone.
       </p>
     </div>
 
     <div class="row">
       <label for="uses">Maximum uses (empty for unlimited)</label>
       <input type="number" id="uses" min="1" step="1" placeholder="unlimited">
-      <p class="hint">Set 1 for a one-shot visitor. Leave empty for a party, or latecomers get locked out.</p>
+      <p class="hint">Set 1 for a one-shot visitor, or a small number for a cleaner. Leave empty for a party, or latecomers get locked out.</p>
     </div>
   </fieldset>
 
@@ -324,12 +323,19 @@ function wireSeg(id, key, after) {
   });
 }
 
+// Kind controls exactly one thing: whether an end time is compulsory. The
+// window and the use cap are available on both, because the database allows
+// them on both and the page has no business being stricter than the schema.
 wireSeg('kind', 'kind', function () {
   var guest = state.kind === 'guest';
-  el('fs-window').hidden = !guest;
   el('kind-hint').textContent = guest
-    ? 'Must have an end time. For visitors, parties, tradespeople.'
-    : 'Never expires. For someone who lives here.';
+    ? 'For visitors, parties, tradespeople. Must have an end time.'
+    : 'For someone who lives here. May run forever, but does not have to.';
+  el('until-label').textContent = guest ? 'Ends (required)' : 'Ends (leave empty for never)';
+  el('until-hint').textContent = guest
+    ? 'Read in this computer\'s timezone. A guest pass must end: a shared pass with '
+      + 'no end date is a permanent key sitting in a group chat.'
+    : 'Read in this computer\'s timezone. Leave it empty and the pass never expires.';
 });
 
 wireSeg('source', 'source', function () {
@@ -406,15 +412,17 @@ function problems() {
     out.push('Type the pass you want, at least 4 characters.');
   }
 
-  if (state.kind === 'guest') {
-    var until = localToIso(el('until').value);
-    var from = localToIso(el('from').value);
-    if (!until) {
-      out.push('A guest pass must have an end time. Use a quick set button, or pick one.');
-    } else {
-      if (until.getTime() <= Date.now()) out.push('That end time has already passed, so the pass would be dead on arrival.');
-      if (from && from.getTime() >= until.getTime()) out.push('The start is not before the end.');
-    }
+  var until = localToIso(el('until').value);
+  var from = localToIso(el('from').value);
+
+  if (state.kind === 'guest' && !until) {
+    out.push('A guest pass must have an end time. Use a quick set button, or pick one.');
+  }
+  if (until && until.getTime() <= Date.now()) {
+    out.push('That end time has already passed, so the pass would be dead on arrival.');
+  }
+  if (from && until && from.getTime() >= until.getTime()) {
+    out.push('The start is not before the end.');
   }
 
   var uses = el('uses').value.trim();
@@ -449,8 +457,8 @@ el('go').addEventListener('click', function () {
 
   var salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   var label = el('label').value.trim();
-  var from = state.kind === 'guest' ? localToIso(el('from').value) : null;
-  var until = state.kind === 'guest' ? localToIso(el('until').value) : null;
+  var from = localToIso(el('from').value);
+  var until = localToIso(el('until').value);
   var uses = el('uses').value.trim();
 
   crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits'])
@@ -475,11 +483,9 @@ el('go').addEventListener('click', function () {
       el('out-pass').textContent = pretty(pass);
       el('out-sql').value = sql;
 
-      var when = state.kind === 'resident'
-        ? 'Never expires. Works from the moment the SQL runs.'
-        : 'Works ' + (from ? 'from ' + readable(from) : 'immediately')
-          + ' until ' + readable(until) + '.'
-          + (uses === '' ? '' : ' Limited to ' + uses + ' use' + (Number(uses) === 1 ? '' : 's') + '.');
+      var when = 'Works ' + (from ? 'from ' + readable(from) : 'immediately')
+        + (until ? ' until ' + readable(until) : ', and never expires')
+        + '.' + (uses === '' ? '' : ' Limited to ' + uses + ' use' + (Number(uses) === 1 ? '' : 's') + '.');
       el('out-window').textContent = when + ' Check that reads the way you meant before running the SQL.';
 
       var bad = [];

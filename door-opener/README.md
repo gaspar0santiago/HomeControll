@@ -866,9 +866,14 @@ node tools/make-pass.js guest --label "Plumber" \
 Times are read in the machine's local timezone and the tool prints both the
 local time and the UTC it resolved to, so there is no guessing.
 
-**A guest pass with no `--until` is refused**, by the CLI and by a CHECK
-constraint in the schema, so writing the INSERT by hand does not get around
-it. A shared pass with no end date is a permanent key sitting in a group
+`kind` decides exactly one thing: whether an end time is compulsory. A
+window and a use cap are available on either kind, because the database
+allows them on either. A resident pass that starts on the first of the
+month, or a cleaner's pass capped at four opens, are both ordinary things.
+
+**A guest pass with no end is refused**, by the CLI, by the generator page
+and by a CHECK constraint in the schema, so writing the INSERT by hand does
+not get around it. A shared pass with no end date is a permanent key sitting in a group
 chat, and group chats outlive parties, flatmates and phones.
 
 ### What is live right now

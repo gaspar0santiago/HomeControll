@@ -451,23 +451,51 @@ means the paste was truncated.
 
 ### 3. Keys and Edge Functions
 
+Two keys, generated separately so they rotate separately. Each prints once,
+along with the SQL to store its hash. Run that SQL in the SQL editor.
+
 ```bash
 cd door-opener
-
-supabase link --project-ref YOUR-PROJECT-REF
-
-# Two keys, generated separately so they rotate separately. Each prints
-# once, with the SQL to store its hash. Run that SQL in the SQL editor.
 node tools/make-key.js device       # goes on the ESP32
 node tools/make-key.js dashboard    # goes in home-controller/.env
 ```
 
+**No clone handy?** Both keys can be generated in any browser's console,
+with no repo, no Node and no install. Press F12 on any page, paste this,
+and change `'device'` to `'dashboard'` for the second one:
+
+```js
+(async () => {
+  const b = crypto.getRandomValues(new Uint8Array(32));
+  const key = btoa(String.fromCharCode(...b))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
+  const hash = [...new Uint8Array(h)].map(x => x.toString(16).padStart(2, '0')).join('');
+  console.log('KEY (save this, shown once):', key);
+  console.log(`insert into door_keys (name, hash) values ('device', '${hash}')
+    on conflict (name) do update set hash = excluded.hash;`);
+})();
+```
+
+Same 32 bytes of randomness, same base64url, same SHA-256, so it produces
+exactly what `make-key.js` would. Verified over 2000 rounds against the
+CLI. It runs entirely in your browser: the key is never sent anywhere, and
+only its hash goes into the database.
+
+Do not paste a key into a chat, an issue, or anywhere it gets stored. The
+whole point of hashing it is that nothing but the board ever holds the
+plaintext.
+
 Only hashes reach the database, so the plaintext never appears in a query
 log. Keep both somewhere you can paste from; each is needed once more.
 
-The dashboard key is also an Edge Function secret:
+The dashboard key is also an Edge Function secret, which does need the CLI:
 
 ```bash
+cd door-opener
+npx supabase login
+npx supabase link --project-ref YOUR-PROJECT-REF
+
 cp .env.example .env
 $EDITOR .env                       # paste DOOR_DASHBOARD_KEY
 supabase secrets set --env-file .env

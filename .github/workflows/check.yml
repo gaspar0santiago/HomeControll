@@ -98,10 +98,10 @@ jobs:
         run: |
           # The functions import nothing remote on purpose, so this needs
           # no network and cannot break because a CDN moved.
-          deno check supabase/functions/_shared/door.ts \
-                     supabase/functions/door-open/index.ts \
-                     supabase/functions/door-poll/index.ts \
-                     supabase/functions/door-events/index.ts
+          # Globbed rather than listed. A hand written list goes stale the
+          # moment a function is added or removed, and the failure lands
+          # here rather than anywhere near the change that caused it.
+          deno check supabase/functions/_shared/*.ts supabase/functions/*/index.ts
 
       - name: The pass CLI refuses a guest pass with no expiry
         working-directory: door-opener

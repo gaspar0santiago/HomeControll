@@ -15,16 +15,38 @@
 // ── Supabase ──────────────────────────────────────────────────
 // Your project ref is the first part of the project URL in the Supabase
 // dashboard.
-#define DOOR_POLL_URL   "https://YOUR-PROJECT-REF.supabase.co/functions/v1/door-poll"
+//
+// This is the REST endpoint, not an Edge Function. A 2 second poll is
+// about 1.3 million calls a month, which is well past the free tier's
+// 500,000 Edge Function invocations, while REST requests are unlimited.
+// Same database, same door_claim(), same row lock.
+#define DOOR_POLL_URL   "https://YOUR-PROJECT-REF.supabase.co/rest/v1/rpc/door_claim"
 
-// The device key, from:  supabase secrets set DOOR_DEVICE_KEY=...
-// This is the only credential on the board. It cannot read the passes
-// table and it cannot do anything but claim a command that someone has
-// already earned. Rotate it on its own, without touching the dashboard key.
+// The anon key, from Supabase Settings > API. It is not a secret: it is
+// designed to be shipped to browsers, and on its own it opens nothing here.
+// RLS is on with no policies, anon holds no table grants, and door_claim is
+// the only function it may call. Without the device key below, that call
+// returns nothing.
+#define SUPABASE_ANON_KEY "paste-the-anon-key"
+
+// The device key, from:  node tools/make-key.js device
+// This is the credential that matters. It cannot read the passes table, it
+// cannot read the attempt log, and it cannot queue an open. All it can do
+// is claim a command somebody already earned. Rotate it on its own, without
+// touching the dashboard key.
 #define DOOR_DEVICE_KEY "paste-the-device-key"
 
 // A name for this board, so claimed_by in door_commands says who took it.
 #define DOOR_DEVICE_NAME "esp32-street-door"
+
+// ── Home controller notify (optional) ─────────────────────────
+// Told, over the LAN, immediately after the relay pulses, so the kiosk can
+// flash a bulb without polling Supabase every few seconds for it. Leave
+// empty to skip it entirely.
+//
+// Not in the door's path: this fires after the door has already opened, and
+// nothing waits on the reply. The controller being off changes nothing.
+#define HOME_CONTROLLER_NOTIFY_URL "http://192.168.68.57:3000/door/opened"
 
 // ── Bench test ────────────────────────────────────────────────
 // Set to 1 and the sketch skips WiFi, TLS and Supabase entirely: it just

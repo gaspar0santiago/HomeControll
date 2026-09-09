@@ -34,15 +34,17 @@ Nothing forwards a port into the flat.
          |  door_claim(): SELECT ... FOR UPDATE SKIP LOCKED
          |  every 2 seconds, over outbound HTTPS
          |
-  door-poll   (Supabase Edge Function, x-device-key)
+  /rest/v1/rpc/door_claim   (PostgREST, anon key + device key)
          ^
          |
       ESP32  ---> relay ---> across the intercom's release button
+         |
+         +--- POST /door/opened, over the LAN, right after the pulse
 
 
   door-events (Edge Function, x-dashboard-key, read only, no IP column)
          ^
-         |  every 3 seconds
+         |  every 60 seconds, for the log
   home-controller/server.js  --->  kiosk door panel + a Tapo bulb flash
 ```
 
@@ -52,6 +54,7 @@ Three separate keys, three separate blast radii:
 | --- | --- | --- | --- |
 | service role | the Edge Functions only | everything | leave Supabase |
 | `DOOR_DEVICE_KEY` | the ESP32 | claim one waiting command | read passes, read the log, queue an open |
+| the anon key | the ESP32, and any browser | nothing on its own | anything at all without one of the keys above |
 | `DOOR_DASHBOARD_KEY` | the home controller | read the last 50 attempts, without IPs | claim anything, open anything |
 
 Rotate any one of them without touching the others.
@@ -95,10 +98,68 @@ exactly the conditions where you need the door to work, and a router reboot
 costs this loop one poll and no configuration. Two seconds of latency on a
 door is nothing.
 
+### What the polling costs
+
+Two loops run continuously, and the shipped intervals are chosen around the
+Supabase free tier's **500,000 Edge Function invocations** and its
+**unlimited API requests**:
+
+| Loop | Interval | Runs against | Per month |
+| --- | --- | --- | --- |
+| `door_claim`, the ESP32 | 2s | REST, unlimited | 1,296,000, uncapped |
+| `door-events`, the home controller | 60s | Edge Function | 43,200 |
+| `door-open`, a person at the door | on use | Edge Function | tens |
+
+The device loop is the expensive one, so it does not run on an Edge
+Function. Claiming a command is a single `door_claim()` call and PostgREST
+serves it directly, which is why a 2 second door fits on a free plan. Same
+database, same row lock, same guarantees; it is the invocation meter that
+differs, not the safety.
+
+The dashboard loop is at 60s rather than the kiosks' 3s because the kiosk
+polls *this server*, which is local and free. Only the server's own poll of
+Supabase costs anything, and the log being up to a minute stale does not
+matter. Raise it with `DOOR_POLL_MS` if you want, at 43,200 invocations per
+60s of interval.
+
+What would have suffered is the bulb flash, so that no longer waits on the
+poll at all: the ESP32 posts to `/door/opened` on the LAN the moment it
+pulses, and the flash is immediate at zero cloud cost. The Supabase poll
+still catches any open the notify missed, and the 10 second debounce means
+the two cannot double-flash.
+
+Egress is not a constraint either: about 1.1 GB against a 5 GB allowance.
+Nor is idling, since providers that pause inactive free projects will never
+pause a loop that runs every 2 seconds.
+
+### Why Supabase and not the database your page host offers
+
+Netlify, Vercel and the rest now all sell a Postgres, and any real Postgres
+can run this schema: `FOR UPDATE SKIP LOCKED` is not exotic.
+
+Two reasons to keep them separate anyway.
+
+The first is that a database alone is not what this needs. The logic that
+matters, checking a pass against every stored hash and claiming a command,
+has to run somewhere server side holding a key the browser never sees.
+Moving the database to your page host means moving those three functions
+there too, so it is not a simpler stack, only a differently shaped one.
+Supabase also puts PostgREST in front of the database, which is why these
+functions call RPCs over HTTPS and never think about connection pools, a
+thing serverless code and raw Postgres connections are famously bad at
+together.
+
+The second is the one that decides it. The page and the door already live
+on different providers, and that independence is worth keeping. A Netlify
+outage takes the page down and the ESP32 carries on polling Supabase, so
+the curl in step 6 still opens the door. Put both on the same provider and
+one status page can take out the page and the door together. That is the
+same reasoning that keeps the home controller out of the path.
+
 ### Why the ESP32 is the only claimer
 
-`door_claim()` is the single path that consumes a command, and only
-`door-poll` can reach it. The home controller polls a different function
+`door_claim()` is the single path that consumes a command, and only the
+board holds the key it demands. The home controller polls a different function
 that physically cannot claim. If the Node server could also claim, it would
 win about half the races and those presses would vanish silently, which is
 the worst possible failure for a door.
@@ -361,29 +422,49 @@ Functions call.
 No policies is the point. Anon and authenticated can read and write nothing.
 Only the service role key, which never leaves the Edge Functions, gets in.
 
-### 3. Edge Functions
+### 3. Keys and Edge Functions
 
 ```bash
 cd door-opener
 
 supabase link --project-ref YOUR-PROJECT-REF
 
-# Generate the two keys. Keep the output; you need each one twice.
-node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
-node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+# Two keys, generated separately so they rotate separately. Each prints
+# once, with the SQL to store its hash. Run that SQL in the SQL editor.
+node tools/make-key.js device       # goes on the ESP32
+node tools/make-key.js dashboard    # goes in home-controller/.env
+```
 
+Only hashes reach the database, so the plaintext never appears in a query
+log. Keep both somewhere you can paste from; each is needed once more.
+
+The dashboard key is also an Edge Function secret:
+
+```bash
 cp .env.example .env
-$EDITOR .env                       # paste the two keys in
+$EDITOR .env                       # paste DOOR_DASHBOARD_KEY
 supabase secrets set --env-file .env
 
 supabase functions deploy door-open   --no-verify-jwt
-supabase functions deploy door-poll   --no-verify-jwt
 supabase functions deploy door-events --no-verify-jwt
 ```
 
-`--no-verify-jwt` is required on all three. A guest at the door has no
-Supabase account and no token: `door-open` authenticates with the pass
-itself, and the other two with their own keys.
+`--no-verify-jwt` is required on both. A guest at the door has no Supabase
+account and no token: `door-open` authenticates with the pass itself, and
+`door-events` with its own key.
+
+There is no function for the ESP32. It calls `door_claim()` through
+PostgREST instead, because a 2 second poll is 1.3 million calls a month
+against a free tier of 500,000 Edge Function invocations, while REST
+requests are unlimited. The key check that would have lived in Deno lives
+in the function itself, and a wrong key returns no rows, which is
+indistinguishable from a door with nothing waiting.
+
+You will also want the **anon key**, from **Settings > API** in the Supabase
+dashboard. It goes on the board. It is not a secret and is designed to be
+public: RLS is on with no policies, anon holds no table grants, and
+`door_claim` is the only function it may call, which then demands the
+device key anyway.
 
 ### 4. Your first pass
 
@@ -427,8 +508,13 @@ IDE and `config.h` appears as a second tab, which is usually easier than
 editing it separately.
 
 Step 1 needed none of this filled in. Now set `DOOR_BENCH_TEST` back to 0
-and fill in the WiFi credentials, the `door-poll` URL, and
-the same `DOOR_DEVICE_KEY` you set in step 3.
+and fill in the WiFi credentials, your project ref in `DOOR_POLL_URL`, the
+anon key, and the device key from step 3.
+
+`HOME_CONTROLLER_NOTIFY_URL` is optional. Set it to your kiosk server and
+the bulb flashes the instant the relay pulses, rather than waiting for the
+next Supabase poll. Leave it empty and everything still works; only the
+flash is late.
 
 **The WiFi must be 2.4GHz.** The ESP32 has no 5GHz radio at all. If your
 router publishes one merged SSID for both bands this usually still works,
@@ -493,7 +579,7 @@ What the failures tell you:
 | Response | Where to look |
 | --- | --- |
 | `{"ok":false,"reason":"unknown"}` | The pass is wrong, or the SQL insert never ran. Check `select * from door_pass_status` |
-| `ok:true` but no click | The board. Serial monitor at 115200 says whether it is polling, and a 401 there means `DOOR_DEVICE_KEY` does not match |
+| `ok:true` but no click | The board. Serial monitor at 115200 says whether it is polling. A 401 or 403 there is the anon key or a missing grant; polling cleanly but never opening is the device key, because a wrong one returns no rows rather than an error. Check `select * from door_keys` has a `device` row |
 | Connection refused or a 404 | The function is not deployed, or the project ref in the URL is wrong |
 
 Getting this far means the door works. The page is a front end for this one
@@ -671,6 +757,10 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
   There is no sensor and no path back from the relay. The ESP32 claims
   within 2 seconds, and the success screen counts down a window in which to
   push. If the board is offline the page still says the door opened.
+- **Both poll loops run all month whether anyone uses the door or not.** At
+  the shipped intervals that is about 2.16 million Edge Function
+  invocations a month against a Supabase free tier of 500,000. See **What
+  the polling costs** above for the levers and the two ways out.
 - **Response time grows with the number of passes.** Every pass is hashed on
   every attempt, which is what keeps the timing flat. Roughly 55ms per pass,
   so 20 passes is about 1.1 seconds. Past 40 or so, prune long dead ones.
@@ -712,7 +802,6 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
 | `netlify.toml` | Publish directory and the security headers |
 | `supabase/schema.sql` | Tables, RLS, the claim and consume functions, the status view |
 | `supabase/functions/door-open/` | Public. Checks the pass, queues a command |
-| `supabase/functions/door-poll/` | Device only. Claims one command |
 | `supabase/functions/door-events/` | Dashboard only. Read only, no IPs |
 | `supabase/functions/_shared/door.ts` | PBKDF2, constant time compare, client IP, RPC |
 | `tools/make-pass.js` | Generates a pass, prints it once, prints the SQL |

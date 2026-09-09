@@ -382,7 +382,15 @@ app.post('/plug/control', async (req, res) => {
 // it, unplug it, and the page and the ESP32 carry on without it.
 const DOOR_EVENTS_URL    = (process.env.DOOR_EVENTS_URL || '').trim();
 const DOOR_DASHBOARD_KEY = (process.env.DOOR_DASHBOARD_KEY || '').trim();
-const DOOR_POLL_MS       = 3000;   // the cadence both kiosks already poll at
+// 60s, not the kiosks' 3s. The kiosk still polls this server every 3
+// seconds; that is local and free. What costs money is this server polling
+// Supabase, and at 3s that was 864,000 Edge Function invocations a month
+// against a free tier of 500,000. At 60s it is 43,200.
+//
+// The log being up to a minute stale is fine. The bulb flash is what needs
+// to be prompt, and that no longer waits on this poll: the ESP32 posts to
+// /door/opened over the LAN the moment it pulses the relay.
+const DOOR_POLL_MS       = parseInt(process.env.DOOR_POLL_MS || '60000', 10);
 const DOOR_EVENT_LIMIT   = 10;
 const DOOR_FETCH_TIMEOUT_MS = 8000;
 
@@ -516,6 +524,9 @@ async function doorTick() {
     const fresh = events.filter(e => e.id > doorLastEventId);
     doorLastEventId = Math.max(doorLastEventId, newestId);
 
+    // Normally the ESP32's /door/opened notify has already flashed and
+    // armed the debounce, so this does nothing. It is the fallback for an
+    // open the notify missed, which is the whole reason it still runs.
     if (fresh.some(e => e.outcome === 'opened')) {
       // Not awaited: a slow or unreachable bulb must not hold up the next
       // poll, and every failure inside is already swallowed.
@@ -527,6 +538,20 @@ async function doorTick() {
     doorError = e.message;
   }
 }
+
+// The ESP32 posts here over the LAN right after it pulses the relay, so
+// the bulb flashes now rather than up to a minute later when the next
+// Supabase poll notices.
+//
+// This is not in the door's path and cannot be: by the time it arrives the
+// door has already opened. Nothing here can open anything, and the same
+//10 second debounce applies, so a duplicate from the poll below is a no-op.
+// Unauthenticated, like every other endpoint on this server, because the
+// worst it can do is flash a light in the lounge.
+app.post('/door/opened', (req, res) => {
+  flashDoorBulb();
+  res.sendStatus(204);
+});
 
 // What the kiosk polls. Same shape as /cameras: it says whether the
 // feature is configured at all, so the panel can hide itself.

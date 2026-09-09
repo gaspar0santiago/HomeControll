@@ -164,6 +164,77 @@ jobs:
           CHECK
           node /tmp/hashcheck.js
 
+      - name: A wrong device key looks exactly like a quiet door
+        working-directory: door-opener
+        run: |
+          # door_claim is reachable by anon, because the ESP32 calls it
+          # through PostgREST rather than an Edge Function. The device key
+          # is what actually gates it, and a wrong one must return no rows
+          # rather than an error, so it cannot be told apart from a door
+          # with nothing waiting.
+          #
+          # Also checks make-key.js and the SQL agree on the hash. If they
+          # ever drift, the board silently never opens the door.
+          sudo systemctl start postgresql || sudo service postgresql start
+          PSQL="sudo -u postgres psql -v ON_ERROR_STOP=1 -q"
+          $PSQL -c 'drop database if exists doorci;' -c 'create database doorci;'
+          # Roles are cluster wide, so creating them must survive a rerun.
+          $PSQL -d doorci -c "do \$\$ begin
+              if not exists (select 1 from pg_roles where rolname='anon')
+                then create role anon; end if;
+              if not exists (select 1 from pg_roles where rolname='authenticated')
+                then create role authenticated; end if;
+              if not exists (select 1 from pg_roles where rolname='service_role')
+                then create role service_role bypassrls; end if;
+            end \$\$;"
+          $PSQL -d doorci -f supabase/schema.sql
+
+          KEY=$(node -e "
+            const c = require('crypto');
+            const k = c.randomBytes(32).toString('base64url');
+            console.log(k + ' ' + c.createHash('sha256').update(k).digest('hex'));
+          ")
+          set -- $KEY
+          PLAINTEXT=$1
+          CLI_HASH=$2
+
+          SQL_HASH=$(sudo -u postgres psql -d doorci -tAc \
+            "select encode(sha256('$PLAINTEXT'::bytea),'hex');")
+          if [ "$CLI_HASH" != "$SQL_HASH" ]; then
+            echo "make-key.js and door_claim disagree on the hash"
+            exit 1
+          fi
+
+          sudo -u postgres psql -d doorci -q \
+            -c "insert into door_keys (name, hash) values ('device', '$CLI_HASH');" \
+            -c "insert into door_passes (id, label, kind, salt, hash, iterations)
+                values ('22222222-2222-2222-2222-222222222222', 'ci', 'resident',
+                        repeat('c',32), repeat('d',64), 120000);" \
+            -c "insert into door_commands (pass_id, expires_at)
+                values ('22222222-2222-2222-2222-222222222222', now() + interval '30 seconds');"
+
+          claim() {
+            sudo -u postgres psql -d doorci -tAc \
+              "set role anon; select coalesce((select command_id::text from door_claim('ci','$1')),'none');" \
+              | tail -1
+          }
+
+          test "$(claim wrong-key)" = "none"        # a command IS waiting
+          test "$(claim "$PLAINTEXT")" != "none"    # the right key takes it
+          test "$(claim "$PLAINTEXT")" = "none"     # and only once
+
+          # Granting door_claim to anon must not have opened anything else.
+          for stmt in "select count(*) from door_passes" \
+                      "select count(*) from door_keys" \
+                      "select count(*) from door_candidates()" \
+                      "select count(*) from door_recent_events(5)"; do
+            if sudo -u postgres psql -d doorci -tAc "set role anon; $stmt;" >/dev/null 2>&1; then
+              echo "anon could run: $stmt"
+              exit 1
+            fi
+          done
+          echo "claim path OK"
+
       - name: Reading a Tapo bulb does not switch it on
         working-directory: home-controller
         run: |

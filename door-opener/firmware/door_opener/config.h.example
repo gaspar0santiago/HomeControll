@@ -23,14 +23,45 @@
 // A name for this board, so claimed_by in door_commands says who took it.
 #define DOOR_DEVICE_NAME "esp32-street-door"
 
+// ── Bench test ────────────────────────────────────────────────
+// Set to 1 and the sketch skips WiFi, TLS and Supabase entirely: it just
+// pulses the relay every few seconds and prints what it is doing. Use it
+// to prove the wiring and the jumper setting on the bench, with nothing
+// connected to the intercom. Set it back to 0 before you install it.
+#define DOOR_BENCH_TEST 0
+
 // ── Relay wiring ──────────────────────────────────────────────
-// The pin driving IN on the opto isolated relay module.
+// The pin driving IN on the relay module.
+//
+// GPIO26 on the 30 pin DevKit: a plain GPIO, not a strapping pin, not one
+// of the flash pins, and it does not pulse during boot. Do not move this
+// to GPIO 0, 2, 4, 5, 12 or 15 (strapping pins, some of which are driven
+// during boot), 6 to 11 (wired to the flash chip), or 1 and 3 (the USB
+// serial port, which spews the boot log). GPIO 34 to 39 are input only and
+// cannot drive a relay at all.
 #define RELAY_PIN 26
 
-// Almost every cheap opto isolated module is active low: IN pulled to
-// ground energises the coil. Set this to 0 only if yours is the other way
-// round, and check with a multimeter before wiring it to the intercom.
-#define RELAY_ACTIVE_LOW 1
+// Which way the module's jumper is set. 1 for LOW trigger, 0 for HIGH.
+//
+// Default is HIGH, and that is deliberate on a door. In HIGH mode the
+// module's IN pin sits behind the optocoupler LED to ground, so an
+// undriven pin cannot rise past the LED's forward voltage and the relay
+// physically cannot close. Every reset, brownout, watchdog and reflash is
+// therefore safe by construction, with no resistor and no reliance on the
+// firmware getting its pin ordering right.
+//
+// In LOW mode an undriven pin is the ON state, which is the failure this
+// whole design is trying to avoid.
+//
+// The catch: HIGH trigger drives the LED straight from the ESP32's 3.3V,
+// and this module is specified at 5(mA) trigger current. It usually works
+// and sometimes does not, depending on the resistor the manufacturer
+// fitted. That is a ten second bench test, and it fails safe: the worst
+// case is a relay that never clicks, which you will notice immediately.
+//
+// If HIGH will not click reliably, set this to 1 and see the LOW TRIGGER
+// FALLBACK note in ../../README.md. It needs one 10k resistor.
+#define RELAY_ACTIVE_LOW 0
 
 // ── TLS ───────────────────────────────────────────────────────
 // PASTE THE ROOT CERTIFICATE HERE. While this is empty the board still
@@ -39,8 +70,7 @@
 //
 // Get it with:
 //
-//   openssl s_client -showcerts -connect YOUR-PROJECT-REF.supabase.co:443 \
-//     </dev/null 2>/dev/null
+//   openssl s_client -showcerts -connect YOUR-PROJECT-REF.supabase.co:443 </dev/null
 //
 // and paste the LAST certificate in the chain (the root) between the
 // markers below, BEGIN and END lines included.

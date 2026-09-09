@@ -276,6 +276,10 @@ jobs:
           kill $FAKE
           echo "door panel OK"
 
+      - name: The ESP32 sketch compiles
+        working-directory: door-opener/firmware/test
+        run: ./compile-check.sh
+
       - name: The ESP32 sets the relay level before the pin direction
         working-directory: door-opener/firmware/door_opener
         run: |

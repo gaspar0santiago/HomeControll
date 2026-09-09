@@ -78,26 +78,93 @@ the worst possible failure for a door.
 
 | Part | Notes |
 | --- | --- |
-| ESP32 dev board | any of them; the sketch uses the Arduino core |
-| Single channel opto isolated relay module | 3.3V logic, active low on almost every cheap one |
+| ESP32 DevKit, 30 pin, WROOM-32 with CP2102 | The board in the pinout diagram everyone has. Arduino core for ESP32 |
+| Single channel opto isolated relay module | **Get the 5V version.** The 12V one needs its own supply |
+
+### Wiring
 
 ```
-  ESP32 GPIO 26  ->  IN
-  ESP32 3V3      ->  VCC
-  ESP32 GND      ->  GND
+   ESP32                          relay module
+  ---------                     ----------------
+   GPIO26  ---------------->  IN      (trigger)
+   VIN     ---------------->  DC+     (5V)
+   GND     ---------------->  DC-
 
-  relay COM and NO  ->  across the intercom's existing release button
+                               COM  ----+
+                                        |--- across the intercom's
+                               NO   ----+    existing release button
 ```
 
-The ESP32 never touches the 12V line. The relay contacts are dry, the opto
-isolator keeps the two sides electrically separate, and the module runs off
-the board's 3V3 rail. Wiring in parallel with the button means the button is
-unaffected: press it and the door opens exactly as before.
+**DC+ goes to VIN, not to 3V3.** VIN is the board's USB 5V rail. A 5V relay
+coil will not pull in reliably at 3.3V: it may buzz, half latch, or work on
+the bench and fail in the cold. This is the one wiring mistake that produces
+a door which mostly works.
 
-Worth adding: a 10k pull-up from IN to 3V3 on an active low module. During a
-reset the ESP32's pins revert to inputs and IN floats for a few
-milliseconds. Most modules have their own pull-up and are fine; the resistor
-makes it certain.
+If you did get 12V modules, they cannot be powered from this board at all.
+They need a separate 12V supply, with that supply's negative tied to ESP32
+GND so IN has a common reference. Simpler to use a 5V module.
+
+The ESP32 never touches the intercom's 12V line either way. The relay
+contacts are dry and the opto isolator keeps the two sides electrically
+separate, so the coil side and the door side share nothing but the two
+contact wires. Wiring COM and NO in parallel with the button means the
+button is unaffected: press it and the door opens exactly as before.
+
+### Which way to set the jumper
+
+**Start on HIGH.** The firmware ships configured for it
+(`RELAY_ACTIVE_LOW 0`).
+
+In HIGH mode the module's IN pin sits behind the optocoupler LED to ground,
+so an undriven pin cannot rise past the LED's forward voltage and the relay
+physically cannot close. Every reset, brownout, watchdog and reflash is
+safe by construction, with no extra components and without relying on the
+firmware getting its pin ordering right. In LOW mode an undriven pin is the
+ON state, which is the exact failure this design exists to avoid.
+
+The catch is that HIGH trigger drives the optocoupler straight from the
+ESP32's 3.3V, and this module is specified at 5mA trigger current. Whether
+3.3V clears that depends on the resistor the manufacturer fitted. It
+usually works. When it does not, it fails safe: the relay simply never
+clicks, which the bench test shows you in ten seconds.
+
+**LOW trigger fallback.** If HIGH will not click reliably:
+
+1. Move the jumper to LOW and set `RELAY_ACTIVE_LOW 1` in `config.h`.
+2. Add a **10k resistor from IN to 3V3**. This holds IN high during the
+   moments the ESP32 is not driving it, which is every reset. Pull it up to
+   3V3 and not to DC+: 5V on a GPIO would be outside what an ESP32 pin
+   tolerates.
+3. The sketch's `relaySafe()` already writes the pin level before switching
+   it to an output, which covers the software half. The resistor covers the
+   hardware half. You want both in this mode.
+
+### Bench test it first
+
+Set `DOOR_BENCH_TEST 1` in `config.h` and flash it with **nothing connected
+to the intercom**. It skips WiFi and Supabase entirely and pulses the relay
+every 5 seconds, printing what it is doing at 115200 baud.
+
+| What to watch | What it means |
+| --- | --- |
+| One click in, one click out per pulse, red LED with it | The jumper and wiring are right |
+| Nothing ever clicks | 3.3V is not driving the opto. Try the other jumper position |
+| Relay stays closed, buzzes, or double clicks | The OFF level is not reaching the module. See the LOW trigger fallback |
+| **Press EN a dozen times during the quiet gaps** | The relay must stay silent through every reset. **If it clicks on reset, stop and fix the jumper before this goes anywhere near the intercom** |
+
+Set `DOOR_BENCH_TEST` back to 0 before installing.
+
+You ordered three modules, so if one behaves oddly on the bench, try
+another before assuming the wiring is wrong.
+
+### Power
+
+USB from any phone charger. The relay coil draws about 70mA while
+energised and the ESP32 peaks near 250mA on WiFi transmit, so a 500mA
+supply is plenty.
+
+Windows usually installs the CP2102 driver by itself. If no COM port
+appears, install Silicon Labs' CP210x VCP driver.
 
 ---
 
@@ -182,9 +249,11 @@ openssl s_client -showcerts -connect YOUR-PROJECT-REF.supabase.co:443 </dev/null
 and paste the last certificate in the chain, BEGIN and END lines included.
 
 Flash `door_opener.ino` with the Arduino IDE (board: ESP32 Dev Module) and
-watch the serial monitor at 115200. **Before wiring it to the intercom**,
-confirm the relay clicks once per open and never on reset: press the reset
-button ten times with a pass unused and the relay must stay silent.
+watch the serial monitor at 115200.
+
+**Do the bench test in the Hardware section above before wiring anything to
+the intercom.** It is the step that tells you the jumper is right, and the
+one that catches a relay that fires on reset.
 
 ### 5. Your first pass
 
@@ -339,6 +408,11 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
 - **`DOOR_ALLOWED_ORIGIN` defaults to any origin** so the page works before
   you have a Netlify URL. CORS is not what protects this endpoint, but
   narrow it anyway once you know the URL.
+- **Whether HIGH trigger fires at 3.3V is not certain until you test it.**
+  The module is specified at 5mA trigger current and the ESP32 gives 3.3V
+  into whatever resistor the manufacturer fitted. It fails safe (the relay
+  never clicks) and the fallback is one 10k resistor, but it is a bench
+  test, not a guarantee.
 - **A stale root certificate stops the poller**, months from now, when the
   root rotates. The serial log says so plainly. The physical intercom button
   and everyone's keys are unaffected: it stops the web page working, not the
@@ -367,4 +441,5 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
 | `tools/make-pass.js` | Generates a pass, prints it once, prints the SQL |
 | `firmware/door_opener/door_opener.ino` | The ESP32 sketch |
 | `firmware/door_opener/config.h.example` | Copy to `config.h`, which is gitignored |
+| `firmware/test/` | Stubbed Arduino headers so CI can compile the sketch without a toolchain |
 | `.env.example` | Every value the whole system needs, and where each one goes |

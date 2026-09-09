@@ -100,7 +100,12 @@ export async function pbkdf2(
   return new Uint8Array(bits);
 }
 
-const ALLOWED_ORIGIN = Deno.env.get("DOOR_ALLOWED_ORIGIN") ?? "*";
+// `supabase secrets set --env-file` on a line like `DOOR_ALLOWED_ORIGIN=`
+// sets an empty string, not an unset variable, and ?? only catches null and
+// undefined. That would emit `Access-Control-Allow-Origin: ""`, which no
+// browser accepts, and the page would stop being able to open the door with
+// nothing in the logs to explain it. Treat empty and whitespace as unset.
+const ALLOWED_ORIGIN = Deno.env.get("DOOR_ALLOWED_ORIGIN")?.trim() || "*";
 
 export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": ALLOWED_ORIGIN,

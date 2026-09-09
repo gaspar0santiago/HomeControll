@@ -480,6 +480,10 @@ supabase functions deploy door-events --no-verify-jwt
 account and no token: `door-open` authenticates with the pass itself, and
 `door-events` with its own key.
 
+The CLI needs no `supabase init` and no `config.toml`. It is happy with
+just the `supabase/functions/` directory that is already in the repo, as
+long as you run it from `door-opener/`.
+
 There is no function for the ESP32. It calls `door_claim()` through
 PostgREST instead, because a 2 second poll is 1.3 million calls a month
 against a free tier of 500,000 Edge Function invocations, while REST

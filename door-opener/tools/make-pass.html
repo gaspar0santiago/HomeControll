@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Door Pass Generator</title>
+<!--
+  Same job as tools/make-pass.js, for people without a clone or Node.
+
+  Open it from disk. It is NOT in public/, so Netlify never publishes it,
+  and it has no network access of any kind: no fetch, no form action, no
+  external stylesheet or font. The pass is generated, hashed and shown
+  entirely inside your browser, and nothing leaves the machine.
+
+  ALPHABET and ITERATIONS below must match tools/make-pass.js and
+  supabase/functions/_shared/door.ts. CI checks that they do, because a
+  silent drift means every pass this produces is rejected with "Not
+  recognised" and nothing explains why.
+-->
+<style>
+  :root {
+    --bg: #0a0a0f; --surface: #14141c; --surface2: #1e1e29;
+    --border: rgba(255,255,255,0.13); --text: #f0f0f0;
+    --muted: rgba(240,240,240,0.55); --accent: #c8ff00;
+    --ok: #34d399; --warn: #ffb347; --fail: #ff5d5d;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    line-height: 1.5; padding: 28px 18px 60px;
+  }
+  main { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+
+  h1 { font-size: 19px; letter-spacing: 0.16em; font-weight: 500; }
+  .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .sub strong { color: var(--ok); font-weight: 500; }
+
+  fieldset { border: 1px solid var(--border); border-radius: 14px; padding: 18px; background: var(--surface); }
+  legend { font-size: 11px; letter-spacing: 0.16em; color: var(--muted); padding: 0 8px; text-transform: uppercase; }
+
+  .row { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
+  .row:first-of-type { margin-top: 4px; }
+  .row > label { font-size: 12px; color: var(--muted); letter-spacing: 0.05em; }
+  .hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+
+  input[type=text], input[type=number], input[type=datetime-local], select {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 9px;
+    color: var(--text); font: inherit; font-size: 15px; padding: 10px 12px; width: 100%;
+    min-height: 44px;
+  }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); min-height: 44px; }
+
+  .seg { display: flex; gap: 8px; }
+  .seg button {
+    flex: 1; min-height: 46px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface2); color: var(--muted); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: rgba(200,255,0,0.10); }
+
+  .quick { display: flex; gap: 8px; flex-wrap: wrap; }
+  .quick button {
+    border: 1px solid var(--border); border-radius: 100px; background: transparent;
+    color: var(--muted); font: inherit; font-size: 12px; padding: 9px 14px; cursor: pointer; min-height: 40px;
+  }
+  .quick button:hover { color: var(--accent); border-color: rgba(200,255,0,0.45); }
+
+  .go {
+    min-height: 56px; border: none; border-radius: 12px; background: var(--accent);
+    color: #0a0a0f; font: inherit; font-size: 16px; font-weight: 700; letter-spacing: 0.1em; cursor: pointer;
+  }
+  .go:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .note { font-size: 12.5px; padding: 10px 12px; border-radius: 9px; border: 1px solid; line-height: 1.5; }
+  .note.warn { color: var(--warn); border-color: rgba(255,179,71,0.4); background: rgba(255,179,71,0.08); }
+  .note.fail { color: var(--fail); border-color: rgba(255,93,93,0.4); background: rgba(255,93,93,0.08); }
+  .note.ok   { color: var(--ok);   border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.08); }
+
+  .pass {
+    font-size: clamp(26px, 7vw, 38px); letter-spacing: 0.16em; text-align: center;
+    padding: 20px 12px; border: 1px solid rgba(200,255,0,0.45); border-radius: 12px;
+    background: rgba(200,255,0,0.06); color: var(--accent); word-break: break-all;
+  }
+  textarea {
+    width: 100%; min-height: 150px; resize: vertical;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 9px;
+    color: var(--text); font: inherit; font-size: 12.5px; padding: 12px; line-height: 1.55;
+  }
+  .copy {
+    min-height: 44px; padding: 10px 16px; border: 1px solid var(--border); border-radius: 9px;
+    background: var(--surface2); color: var(--text); font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .copy:hover { border-color: var(--accent); color: var(--accent); }
+  .bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .bar .said { font-size: 12px; color: var(--ok); }
+  [hidden] { display: none !important; }
+  code { background: var(--surface2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+
+  <header>
+    <h1>DOOR PASS GENERATOR</h1>
+    <p class="sub">
+      Runs entirely in this page. <strong>Nothing is sent anywhere</strong>: no network
+      calls, no storage. Close the tab and the pass is gone, so copy it before you do.
+    </p>
+  </header>
+
+  <fieldset>
+    <legend>Pass</legend>
+
+    <div class="row">
+      <label>Kind</label>
+      <div class="seg" id="kind">
+        <button type="button" data-kind="resident" aria-pressed="true">Resident</button>
+        <button type="button" data-kind="guest" aria-pressed="false">Guest</button>
+      </div>
+      <p class="hint" id="kind-hint">Never expires. For someone who lives here.</p>
+    </div>
+
+    <div class="row">
+      <label for="label">Label</label>
+      <input type="text" id="label" placeholder="Santi" maxlength="60" autocomplete="off">
+      <p class="hint">Shows on the kiosk door panel and in the log. Not secret.</p>
+    </div>
+
+    <div class="row">
+      <label>Characters</label>
+      <div class="seg" id="source">
+        <button type="button" data-source="random" aria-pressed="true">Random</button>
+        <button type="button" data-source="custom" aria-pressed="false">Choose my own</button>
+      </div>
+    </div>
+
+    <div class="row" id="row-length">
+      <label for="length">Length: <span id="length-out">8</span> characters</label>
+      <input type="range" id="length" min="6" max="16" value="8">
+      <p class="hint" id="entropy">About 2^40 combinations. The lockout allows 5 tries per 15 minutes.</p>
+    </div>
+
+    <div class="row" id="row-custom" hidden>
+      <label for="custom">Your pass</label>
+      <input type="text" id="custom" placeholder="BRASS KETTLE FERN" autocomplete="off" spellcheck="false">
+      <p class="hint">Spaces, dashes and lower case are fine. They are stripped before hashing, exactly as the door page does.</p>
+      <div class="note warn" id="custom-warn" hidden></div>
+    </div>
+  </fieldset>
+
+  <fieldset id="fs-window" hidden>
+    <legend>Valid window</legend>
+
+    <div class="row">
+      <label>Quick set</label>
+      <div class="quick">
+        <button type="button" data-preset="tonight">Tonight until 3am</button>
+        <button type="button" data-preset="saturday">Sat 8pm to Sun 3am</button>
+        <button type="button" data-preset="day">Next 24 hours</button>
+        <button type="button" data-preset="week">Next 7 days</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label for="from">Starts (leave empty for immediately)</label>
+      <input type="datetime-local" id="from">
+    </div>
+
+    <div class="row">
+      <label for="until">Ends</label>
+      <input type="datetime-local" id="until">
+      <p class="hint">
+        Read in this computer's timezone. A guest pass must end: a shared pass
+        with no end date is a permanent key sitting in a group chat.
+      </p>
+    </div>
+
+    <div class="row">
+      <label for="uses">Maximum uses (empty for unlimited)</label>
+      <input type="number" id="uses" min="1" step="1" placeholder="unlimited">
+      <p class="hint">Set 1 for a one-shot visitor. Leave empty for a party, or latecomers get locked out.</p>
+    </div>
+  </fieldset>
+
+  <div class="note fail" id="problem" hidden></div>
+  <button type="button" class="go" id="go">GENERATE</button>
+
+  <fieldset id="out" hidden>
+    <legend>Result</legend>
+
+    <div class="row">
+      <label>The pass, shown once</label>
+      <div class="pass" id="out-pass"></div>
+      <div class="bar">
+        <button type="button" class="copy" data-copy="pass">Copy pass</button>
+        <span class="said" id="said-pass" hidden>copied</span>
+      </div>
+    </div>
+
+    <div class="note ok" id="out-window"></div>
+    <div class="note warn" id="out-keypad" hidden></div>
+
+    <div class="row">
+      <label>Run this in the Supabase SQL editor</label>
+      <textarea id="out-sql" readonly spellcheck="false"></textarea>
+      <div class="bar">
+        <button type="button" class="copy" data-copy="sql">Copy SQL</button>
+        <span class="said" id="said-sql" hidden>copied</span>
+      </div>
+      <p class="hint">
+        Only the hash is stored. The pass above cannot be recovered from it,
+        so if you lose the pass, generate another.
+      </p>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Manage existing passes</legend>
+
+    <div class="row">
+      <label>See everything and its state</label>
+      <textarea id="q-live" readonly rows="2" spellcheck="false">select label, kind, state, valid_until, expires_in, use_count, max_uses
+from door_pass_status order by state, label;</textarea>
+      <div class="bar">
+        <button type="button" class="copy" data-copy="live">Copy</button>
+        <span class="said" id="said-live" hidden>copied</span>
+      </div>
+      <p class="hint">Run this first. The label you see there is what the actions below need.</p>
+    </div>
+
+    <div class="row">
+      <label for="m-label">Which pass</label>
+      <input type="text" id="m-label" placeholder="Sat party" autocomplete="off">
+    </div>
+
+    <div class="row">
+      <label>What to do with it</label>
+      <div class="quick">
+        <button type="button" data-action="revoke">Turn it off</button>
+        <button type="button" data-action="restore">Turn it back on</button>
+        <button type="button" data-action="extend">Change the end time</button>
+        <button type="button" data-action="uses">Change the use limit</button>
+        <button type="button" data-action="delete">Delete for good</button>
+      </div>
+    </div>
+
+    <div class="row" id="row-m-until" hidden>
+      <label for="m-until">New end time</label>
+      <input type="datetime-local" id="m-until">
+    </div>
+
+    <div class="row" id="row-m-uses" hidden>
+      <label for="m-uses">New maximum uses (empty for unlimited)</label>
+      <input type="number" id="m-uses" min="1" step="1" placeholder="unlimited">
+    </div>
+
+    <div class="note warn" id="m-note" hidden></div>
+
+    <div class="row" id="row-m-sql" hidden>
+      <label>Run this in the Supabase SQL editor</label>
+      <textarea id="m-sql" readonly rows="3" spellcheck="false"></textarea>
+      <div class="bar">
+        <button type="button" class="copy" data-copy="manage">Copy SQL</button>
+        <span class="said" id="said-manage" hidden>copied</span>
+      </div>
+    </div>
+  </fieldset>
+
+</main>
+
+<script>
+'use strict';
+
+// Must match tools/make-pass.js and supabase/functions/_shared/door.ts.
+// CI fails if these drift.
+var ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+var ITERATIONS = 120000;
+var SALT_BYTES = 16;
+var KEY_BITS = 256;
+
+var el = function (id) { return document.getElementById(id); };
+var state = { kind: 'resident', source: 'random' };
+var result = null;
+
+// ── helpers ───────────────────────────────────────────────────
+function normalise(s) { return s.toUpperCase().replace(/[^0-9A-Z]/g, ''); }
+function hex(bytes) {
+  return Array.prototype.map.call(bytes, function (b) {
+    return b.toString(16).padStart(2, '0');
+  }).join('');
+}
+function sqlText(v) { return "'" + String(v).replace(/'/g, "''") + "'"; }
+function pretty(p) { return (p.match(/.{1,4}/g) || [p]).join('-'); }
+
+function localToIso(value) {
+  if (!value) return null;
+  var d = new Date(value);            // datetime-local is read as local time
+  return isNaN(d.getTime()) ? null : d;
+}
+function readable(d) {
+  return d.toLocaleString([], {
+    weekday: 'short', day: 'numeric', month: 'short',
+    hour: 'numeric', minute: '2-digit'
+  });
+}
+function toInputValue(d) {
+  var pad = function (n) { return String(n).padStart(2, '0'); };
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+// ── segmented controls ────────────────────────────────────────
+function wireSeg(id, key, after) {
+  el(id).addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    Array.prototype.forEach.call(el(id).querySelectorAll('button'), function (x) {
+      x.setAttribute('aria-pressed', String(x === b));
+    });
+    state[key] = b.dataset[key];
+    after();
+    validate();
+  });
+}
+
+wireSeg('kind', 'kind', function () {
+  var guest = state.kind === 'guest';
+  el('fs-window').hidden = !guest;
+  el('kind-hint').textContent = guest
+    ? 'Must have an end time. For visitors, parties, tradespeople.'
+    : 'Never expires. For someone who lives here.';
+});
+
+wireSeg('source', 'source', function () {
+  el('row-length').hidden = state.source !== 'random';
+  el('row-custom').hidden = state.source !== 'custom';
+});
+
+// ── length and entropy ────────────────────────────────────────
+el('length').addEventListener('input', function () {
+  var n = Number(el('length').value);
+  el('length-out').textContent = n;
+  el('entropy').textContent = 'About 2^' + Math.round(n * 5)
+    + ' combinations. The lockout allows 5 tries per 15 minutes.';
+});
+
+// ── custom pass warnings ──────────────────────────────────────
+el('custom').addEventListener('input', function () {
+  var p = normalise(el('custom').value);
+  var bad = [];
+  for (var i = 0; i < p.length; i++) {
+    if (ALPHABET.indexOf(p[i]) === -1 && bad.indexOf(p[i]) === -1) bad.push(p[i]);
+  }
+  var msgs = [];
+  if (bad.length) {
+    msgs.push('The keypad has no ' + bad.join(', ') + '. Those four characters were left out '
+      + 'so nothing is ambiguous at a dark door, so this pass can only be entered '
+      + 'using the page’s "Type instead" mode.');
+  }
+  if (p.length > 0 && p.length < 8) {
+    msgs.push('Short passes are guessable, and the lockout only slows that down. Eight or more is better.');
+  }
+  el('custom-warn').hidden = msgs.length === 0;
+  el('custom-warn').innerHTML = msgs.join('<br><br>');
+  validate();
+});
+
+// ── window presets ────────────────────────────────────────────
+el('fs-window').addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-preset]');
+  if (!b) return;
+  var now = new Date(), from = new Date(now), until = new Date(now);
+
+  if (b.dataset.preset === 'tonight') {
+    until.setDate(until.getDate() + (now.getHours() < 3 ? 0 : 1));
+    until.setHours(3, 0, 0, 0);
+  } else if (b.dataset.preset === 'saturday') {
+    // The coming Saturday, or today if it already is one.
+    from.setDate(from.getDate() + ((6 - from.getDay()) + 7) % 7);
+    from.setHours(20, 0, 0, 0);
+    until = new Date(from);
+    until.setDate(until.getDate() + 1);
+    until.setHours(3, 0, 0, 0);
+  } else if (b.dataset.preset === 'day') {
+    until.setDate(until.getDate() + 1);
+  } else {
+    until.setDate(until.getDate() + 7);
+  }
+
+  el('from').value = b.dataset.preset === 'saturday' ? toInputValue(from) : '';
+  el('until').value = toInputValue(until);
+  validate();
+});
+
+['label', 'from', 'until', 'uses'].forEach(function (id) {
+  el(id).addEventListener('input', validate);
+});
+
+// ── validation ────────────────────────────────────────────────
+function problems() {
+  var out = [];
+  if (!el('label').value.trim()) out.push('Give it a label, so you know what it was for later.');
+
+  if (state.source === 'custom' && normalise(el('custom').value).length < 4) {
+    out.push('Type the pass you want, at least 4 characters.');
+  }
+
+  if (state.kind === 'guest') {
+    var until = localToIso(el('until').value);
+    var from = localToIso(el('from').value);
+    if (!until) {
+      out.push('A guest pass must have an end time. Use a quick set button, or pick one.');
+    } else {
+      if (until.getTime() <= Date.now()) out.push('That end time has already passed, so the pass would be dead on arrival.');
+      if (from && from.getTime() >= until.getTime()) out.push('The start is not before the end.');
+    }
+  }
+
+  var uses = el('uses').value.trim();
+  if (uses !== '' && (!/^\d+$/.test(uses) || Number(uses) < 1)) {
+    out.push('Maximum uses must be a whole number of 1 or more, or empty for unlimited.');
+  }
+  return out;
+}
+
+function validate() {
+  var p = problems();
+  el('problem').hidden = p.length === 0;
+  el('problem').innerHTML = p.join('<br>');
+  el('go').disabled = p.length > 0;
+  return p.length === 0;
+}
+
+// ── generate ──────────────────────────────────────────────────
+el('go').addEventListener('click', function () {
+  if (!validate()) return;
+
+  var pass;
+  if (state.source === 'random') {
+    var n = Number(el('length').value);
+    var rb = crypto.getRandomValues(new Uint8Array(n));
+    pass = '';
+    // 256 divides by 32 exactly, so masking to 5 bits is uniform.
+    for (var i = 0; i < n; i++) pass += ALPHABET[rb[i] & 31];
+  } else {
+    pass = normalise(el('custom').value);
+  }
+
+  var salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  var label = el('label').value.trim();
+  var from = state.kind === 'guest' ? localToIso(el('from').value) : null;
+  var until = state.kind === 'guest' ? localToIso(el('until').value) : null;
+  var uses = el('uses').value.trim();
+
+  crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveBits'])
+    .then(function (key) {
+      return crypto.subtle.deriveBits(
+        { name: 'PBKDF2', hash: 'SHA-256', salt: salt, iterations: ITERATIONS }, key, KEY_BITS);
+    })
+    .then(function (bits) {
+      var sql = 'insert into door_passes\n'
+        + '  (label, kind, salt, hash, iterations, valid_from, valid_until, max_uses)\n'
+        + 'values\n'
+        + '  (' + sqlText(label) + ', ' + sqlText(state.kind) + ',\n'
+        + '   ' + sqlText(hex(salt)) + ',\n'
+        + '   ' + sqlText(hex(new Uint8Array(bits))) + ',\n'
+        + '   ' + ITERATIONS + ', '
+        + (from ? sqlText(from.toISOString()) : 'null') + ', '
+        + (until ? sqlText(until.toISOString()) : 'null') + ', '
+        + (uses === '' ? 'null' : Number(uses)) + ');';
+
+      result = { pass: pass, sql: sql };
+
+      el('out-pass').textContent = pretty(pass);
+      el('out-sql').value = sql;
+
+      var when = state.kind === 'resident'
+        ? 'Never expires. Works from the moment the SQL runs.'
+        : 'Works ' + (from ? 'from ' + readable(from) : 'immediately')
+          + ' until ' + readable(until) + '.'
+          + (uses === '' ? '' : ' Limited to ' + uses + ' use' + (Number(uses) === 1 ? '' : 's') + '.');
+      el('out-window').textContent = when + ' Check that reads the way you meant before running the SQL.';
+
+      var bad = [];
+      for (var j = 0; j < pass.length; j++) {
+        if (ALPHABET.indexOf(pass[j]) === -1 && bad.indexOf(pass[j]) === -1) bad.push(pass[j]);
+      }
+      el('out-keypad').hidden = bad.length === 0;
+      el('out-keypad').textContent = bad.length
+        ? 'Contains ' + bad.join(', ') + ', which the keypad does not have. It can only be entered with "Type instead".'
+        : '';
+
+      el('out').hidden = false;
+      el('out').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+});
+
+// ── copy buttons ──────────────────────────────────────────────
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-copy]');
+  if (!b) return;
+  var what = b.dataset.copy;
+  var text = what === 'pass' ? (result && result.pass)
+    : what === 'sql' ? (result && result.sql)
+    : what === 'live' ? el('q-live').value
+    : what === 'manage' ? el('m-sql').value
+    : null;
+  if (!text) return;
+
+  var said = el('said-' + what);
+  var show = function () {
+    said.hidden = false;
+    setTimeout(function () { said.hidden = true; }, 1600);
+  };
+  // Opened over file://, the clipboard API is often unavailable, so fall
+  // back to selecting the text rather than failing silently.
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(show, function () { said.hidden = false; said.textContent = 'copy it by hand'; });
+  } else {
+    said.hidden = false;
+    said.textContent = 'select the text and copy';
+  }
+});
+
+// ── manage existing passes ────────────────────────────────────
+// Everything here produces SQL to paste, exactly like the create side.
+// This file holds no keys and makes no network calls, so it cannot reach
+// the database itself, and that is deliberate: the service role key stays
+// inside the Edge Functions, never in a file on a laptop.
+var mAction = null;
+
+el('m-note').classList.add('warn');
+
+function renderManage() {
+  var label = el('m-label').value.trim();
+  el('row-m-until').hidden = mAction !== 'extend';
+  el('row-m-uses').hidden = mAction !== 'uses';
+
+  if (!mAction) { el('row-m-sql').hidden = true; el('m-note').hidden = true; return; }
+
+  if (!label) {
+    el('m-note').hidden = false;
+    el('m-note').textContent = 'Type the label of the pass first. Run the query above if you are not sure what it is.';
+    el('row-m-sql').hidden = true;
+    return;
+  }
+
+  var sql = null, note = null;
+  var q = sqlText(label);
+
+  if (mAction === 'revoke') {
+    sql = 'update door_passes set revoked_at = now()\n where label = ' + q + ';';
+    note = 'Takes effect immediately. Anyone typing it is told the pass has been turned off. '
+         + 'The pass stays in the table, so its history in the log keeps its label, and you can undo this.';
+  } else if (mAction === 'restore') {
+    sql = 'update door_passes set revoked_at = null\n where label = ' + q + ';';
+    note = 'Undoes a revoke. If the pass is a guest pass whose window has already passed, '
+         + 'it stays expired: revoking and expiring are separate things.';
+  } else if (mAction === 'extend') {
+    var until = localToIso(el('m-until').value);
+    if (!until) {
+      note = 'Pick the new end time.';
+    } else {
+      sql = 'update door_passes set valid_until = ' + sqlText(until.toISOString()) + '\n where label = ' + q + ';';
+      note = 'New end time: ' + readable(until) + '. '
+           + (until.getTime() <= Date.now() ? 'That is in the past, so the pass stops working straight away.' : '');
+    }
+  } else if (mAction === 'uses') {
+    var u = el('m-uses').value.trim();
+    if (u !== '' && (!/^\d+$/.test(u) || Number(u) < 1)) {
+      note = 'Use limit must be a whole number of 1 or more, or empty for unlimited.';
+    } else {
+      sql = 'update door_passes set max_uses = ' + (u === '' ? 'null' : Number(u)) + '\n where label = ' + q + ';';
+      note = u === '' ? 'Unlimited uses.'
+        : 'Capped at ' + u + '. Note this counts total uses ever, not uses from now: '
+          + 'check use_count first or you may cap it below what it has already done.';
+    }
+  } else if (mAction === 'delete') {
+    sql = 'delete from door_passes where label = ' + q + ';';
+    note = 'Prefer turning it off instead. Deleting drops the pass out of the constant time scan '
+         + 'and its rows in the attempt log lose their label, so past entries show as "unknown pass". '
+         + 'Revoking keeps the history and can be undone.';
+  }
+
+  el('m-note').hidden = !note;
+  el('m-note').textContent = note || '';
+  el('row-m-sql').hidden = !sql;
+  el('m-sql').value = sql || '';
+}
+
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-action]');
+  if (!b) return;
+  mAction = b.dataset.action;
+  Array.prototype.forEach.call(document.querySelectorAll('button[data-action]'), function (x) {
+    x.style.borderColor = x === b ? 'rgba(200,255,0,0.45)' : '';
+    x.style.color = x === b ? 'var(--accent)' : '';
+  });
+  renderManage();
+});
+
+['m-label', 'm-until', 'm-uses'].forEach(function (id) {
+  el(id).addEventListener('input', renderManage);
+});
+
+validate();
+</script>
+</body>
+</html>

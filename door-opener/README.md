@@ -614,6 +614,22 @@ not a secret and it is not what protects the door, the pass is. But a name
 that says which address it opens invites attempts you would otherwise never
 see, and every one of those is a row in your lockout table.
 
+**Leave Environment variables completely empty, and do not import your
+`.env`.** That option sits right below the build settings and the folder
+you just pointed Netlify at contains a `.env`, so the invitation is
+obvious. Take nothing up on it.
+
+Netlify environment variables only exist during a build and inside Netlify
+Functions. There is no build here and there are no Netlify Functions, and a
+static page in somebody's browser cannot read them under any circumstances.
+So they would achieve nothing even if they held the right values.
+
+What they would achieve is uploading `DOOR_DEVICE_KEY` and
+`DOOR_DASHBOARD_KEY` to a third party that has no use for either. Those
+belong on the board and in `home-controller/.env`. Netlify needs no secret
+at all: the only thing the page has to know is the `door-open` URL, which
+is public, lives in `public/config.js`, and is committed on purpose.
+
 **Check the headers landed, because Base directory failing is silent.** As
 soon as the first deploy finishes:
 

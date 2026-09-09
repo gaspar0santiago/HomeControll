@@ -508,6 +508,27 @@ supabase functions deploy door-events --no-verify-jwt
 account and no token: `door-open` authenticates with the pass itself, and
 `door-events` with its own key.
 
+**No clone? Deploy through the dashboard instead.** Each function has a
+committed `bundled.ts` next to its `index.ts`, with `_shared/door.ts`
+inlined into one self-contained file, because the dashboard editor cannot
+express an import reaching outside a function's own folder.
+
+1. **Edge Functions > Deploy a new function > Via editor**
+2. Name it exactly `door-open`, then again for `door-events`. The names are
+   part of the URLs the page and the home controller call.
+3. Replace the sample code with the contents of
+   [`supabase/functions/door-open/bundled.ts`](supabase/functions/door-open/bundled.ts),
+   readable and copyable straight from GitHub, and deploy.
+4. Turn **Verify JWT** off on both. A guest at the door has no Supabase
+   account and no token.
+5. Set `DOOR_DASHBOARD_KEY` under **Project Settings > Edge Functions >
+   Secrets**, which is the same thing `supabase secrets set` does.
+
+Those bundles are generated, never hand edited. Change `index.ts` or
+`_shared/door.ts` and run `npm run bundle`; CI regenerates them and fails
+on any difference, so they cannot drift away from the sources the CLI
+deploys.
+
 The CLI needs no `supabase init` and no `config.toml`. It is happy with
 just the `supabase/functions/` directory that is already in the repo, as
 long as you run it from `door-opener/`.

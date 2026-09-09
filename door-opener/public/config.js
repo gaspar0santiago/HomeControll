@@ -7,7 +7,7 @@
 // URL is public by design; what protects the door is that the function
 // checks the pass server side.
 window.DOOR_CONFIG = {
-  openUrl: 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/door-open',
+  openUrl: 'https://kszdyfugwyueqjpcydai.supabase.co/functions/v1/door-open',
 
   // How long the success screen tells the visitor to push. The ESP32 polls
   // every 2 seconds, so the latch releases inside this window.

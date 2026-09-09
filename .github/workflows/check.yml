@@ -85,10 +85,224 @@ jobs:
           curl -sf http://127.0.0.1:3999/lights >/dev/null
           kill $SRV
 
+      - name: Syntax-check the door opener
+        working-directory: door-opener
+        run: npm run check
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check the Edge Functions
+        working-directory: door-opener
+        run: |
+          # The functions import nothing remote on purpose, so this needs
+          # no network and cannot break because a CDN moved.
+          deno check supabase/functions/_shared/door.ts \
+                     supabase/functions/door-open/index.ts \
+                     supabase/functions/door-poll/index.ts \
+                     supabase/functions/door-events/index.ts
+
+      - name: The pass CLI refuses a guest pass with no expiry
+        working-directory: door-opener
+        run: |
+          # The one refusal that matters. A guest pass with no end date is
+          # a permanent key sitting in a group chat.
+          if node tools/make-pass.js guest --label "no expiry" >/dev/null 2>&1; then
+            echo "make-pass.js generated a guest pass with no --until"
+            exit 1
+          fi
+          node tools/make-pass.js guest --label "ok" --until "2099-01-01T00:00" | grep -q "GUEST PASS"
+          node tools/make-pass.js resident --label "ok" | grep -q "RESIDENT PASS"
+          # A pass that has already expired is dead on arrival.
+          if node tools/make-pass.js guest --label "past" --until "2000-01-01T00:00" >/dev/null 2>&1; then
+            echo "make-pass.js accepted an --until in the past"
+            exit 1
+          fi
+          echo "CLI refusals OK"
+
+      - name: The CLI's hash matches what the Edge Function computes
+        working-directory: door-opener
+        run: |
+          # If these two ever drift, every pass silently stops working and
+          # nothing else in this repo would notice.
+          cat > /tmp/hashcheck.js <<'CHECK'
+          const { execSync } = require('child_process');
+          const crypto = require('crypto');
+
+          const out = execSync('node tools/make-pass.js resident --label ci-check').toString();
+          const pass = (out.match(/={40,}\s+([0-9A-Z-]+)\s+={40,}/) || [])[1];
+          const salt = (out.match(/'([0-9a-f]{32})'/) || [])[1];
+          const hash = (out.match(/'([0-9a-f]{64})'/) || [])[1];
+          if (!pass || !salt || !hash) {
+            console.error('could not parse the CLI output'); process.exit(1);
+          }
+
+          const normalised = pass.toUpperCase().replace(/[^0-9A-Z]/g, '');
+          const fromCli = crypto
+            .pbkdf2Sync(normalised, Buffer.from(salt, 'hex'), 120000, 32, 'sha256')
+            .toString('hex');
+          if (fromCli !== hash) {
+            console.error('the printed pass does not hash to the printed SQL'); process.exit(1);
+          }
+
+          // Same derivation the Edge Function runs, through the same
+          // WebCrypto API Deno gives it.
+          crypto.webcrypto.subtle
+            .importKey('raw', new TextEncoder().encode(normalised), 'PBKDF2', false, ['deriveBits'])
+            .then(key => crypto.webcrypto.subtle.deriveBits(
+              { name: 'PBKDF2', hash: 'SHA-256', salt: new Uint8Array(Buffer.from(salt, 'hex')), iterations: 120000 },
+              key, 256))
+            .then(bits => {
+              const fromEdge = Buffer.from(bits).toString('hex');
+              if (fromEdge !== hash) {
+                console.error('WebCrypto and pbkdf2Sync disagree: no pass would ever match');
+                process.exit(1);
+              }
+              console.log('CLI and Edge Function derive the same hash');
+            });
+          CHECK
+          node /tmp/hashcheck.js
+
+      - name: Reading a Tapo bulb does not switch it on
+        working-directory: home-controller
+        run: |
+          # tapo_helper.py switches the bulb on before every command. The
+          # door opener's flash reads the bulb first so it can put it back
+          # exactly, and a read that fell through to that device.on() would
+          # light the room every time it looked.
+          WORK=$(mktemp -d)
+          cp tapo_helper.py "$WORK/"
+          cat > "$WORK/tapo.py" <<'STUB'
+          import sys
+
+          def _log(name):
+              print('CALL ' + name, file=sys.stderr)
+
+          class _Info:
+              device_on = True
+              brightness = 47
+              hue = 210
+              saturation = 88
+              color_temp = 0
+
+          class _Device:
+              async def on(self): _log('on')
+              async def off(self): _log('off')
+              async def get_device_info(self): _log('get_device_info'); return _Info()
+              async def set_brightness(self, value): _log('set_brightness')
+              async def set_hue_saturation(self, h, s): _log('set_hue_saturation')
+              async def set_color_temperature(self, t): _log('set_color_temperature')
+
+          class ApiClient:
+              def __init__(self, email, password): pass
+              def __getattr__(self, name):
+                  async def connect(ip): return _Device()
+                  return connect
+          STUB
+          cd "$WORK"
+          ARGS='{"email":"e","password":"p","ip":"10.0.0.9","action":"read"}'
+          PYTHONPATH=. python tapo_helper.py "$ARGS" > read.out 2> read.err
+          grep -q '"device_on": true' read.out
+          grep -q '"brightness": 47' read.out
+          if grep -q '^CALL on$' read.err; then
+            echo "a state read switched the bulb on"
+            exit 1
+          fi
+          grep -q '^CALL get_device_info$' read.err
+          # And the ordinary write path must still switch it on.
+          PYTHONPATH=. python tapo_helper.py '{"email":"e","password":"p","ip":"10.0.0.9","brightness":50}' > set.out 2> set.err
+          grep -q '"ok": true' set.out
+          grep -q '^CALL on$' set.err
+          echo "tapo read path OK"
+
+      - name: The door panel polls, primes and stays read only
+        working-directory: home-controller
+        run: |
+          # Fake door-events feed, so the panel can be exercised without a
+          # Supabase project.
+          cat > /tmp/fakedoor.js <<'FAKE'
+          const http = require('http');
+          const events = [
+            { id: 40, at: new Date().toISOString(), outcome: 'opened',  label: 'Sat party' },
+            { id: 39, at: new Date().toISOString(), outcome: 'unknown', label: null },
+          ];
+          http.createServer((req, res) => {
+            if (req.headers['x-dashboard-key'] !== 'ci-dashboard-key') {
+              res.writeHead(401, { 'Content-Type': 'application/json' });
+              return res.end('{"events":[]}');
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ events }));
+          }).listen(4711);
+          FAKE
+          node /tmp/fakedoor.js & FAKE=$!
+          sleep 1
+
+          # Unconfigured: the panel reports itself off and nothing polls.
+          PORT=3994 CAMERA_IP='' CAMERA2_IP='' node server.js > off.log 2>&1 & OFF=$!
+          for i in $(seq 1 40); do curl -sf http://127.0.0.1:3994/lights/state >/dev/null && break; sleep 0.25; done
+          test "$(curl -s http://127.0.0.1:3994/door/events)" = '{"configured":false,"error":null,"events":[]}'
+          grep -q 'Door panel disabled' off.log
+          kill $OFF
+
+          # Configured: events arrive, and the first fetch primes the id
+          # rather than replaying the last ten opens after a restart.
+          PORT=3993 CAMERA_IP='' CAMERA2_IP='' \
+            DOOR_EVENTS_URL=http://127.0.0.1:4711/door-events \
+            DOOR_DASHBOARD_KEY=ci-dashboard-key \
+            node server.js > on.log 2>&1 & ON=$!
+          for i in $(seq 1 40); do curl -sf http://127.0.0.1:3993/lights/state >/dev/null && break; sleep 0.25; done
+          sleep 2
+          curl -s http://127.0.0.1:3993/door/events | grep -q '"Sat party"'
+          curl -s http://127.0.0.1:3993/door/events | grep -q '"configured":true'
+          grep -q 'Door panel primed at event 40' on.log
+          # DOOR_FLASH_IP is unset, so nothing was flashed. More to the
+          # point, nothing was claimed: this server has no path to
+          # door_claim and must never grow one, or it would race the ESP32.
+          if grep -qi 'claim' on.log; then echo "server tried to claim a door command"; exit 1; fi
+          kill $ON
+
+          # A bad key must show as unreachable, not as an empty log that
+          # looks like a quiet night.
+          PORT=3992 CAMERA_IP='' CAMERA2_IP='' \
+            DOOR_EVENTS_URL=http://127.0.0.1:4711/door-events \
+            DOOR_DASHBOARD_KEY=wrong-key \
+            node server.js > bad.log 2>&1 & BAD=$!
+          for i in $(seq 1 40); do curl -sf http://127.0.0.1:3992/lights/state >/dev/null && break; sleep 0.25; done
+          sleep 2
+          curl -s http://127.0.0.1:3992/door/events | grep -q '"error":"HTTP 401"'
+          kill $BAD
+          kill $FAKE
+          echo "door panel OK"
+
+      - name: The ESP32 sets the relay level before the pin direction
+        working-directory: door-opener/firmware/door_opener
+        run: |
+          # Switching the pin to OUTPUT first drives the latched 0, which
+          # on an active low module opens the street door on every reset.
+          # There is no Arduino toolchain here, so check the order directly.
+          WRITE=$(grep -n 'digitalWrite(RELAY_PIN, RELAY_OFF);' door_opener.ino | head -1 | cut -d: -f1)
+          MODE=$(grep -n 'pinMode(RELAY_PIN, OUTPUT);' door_opener.ino | head -1 | cut -d: -f1)
+          test -n "$WRITE" && test -n "$MODE"
+          if [ "$WRITE" -ge "$MODE" ]; then
+            echo "pinMode comes before digitalWrite: the door opens on every reset"
+            exit 1
+          fi
+          # relaySafe() has to be the first thing setup() does, before
+          # Serial and WiFi, which take time.
+          SETUP=$(grep -n 'void setup()' door_opener.ino | cut -d: -f1)
+          SAFE=$(grep -n '  relaySafe();' door_opener.ino | head -1 | cut -d: -f1)
+          SERIALLINE=$(grep -n 'Serial.begin' door_opener.ino | cut -d: -f1)
+          test "$SAFE" -gt "$SETUP" && test "$SAFE" -lt "$SERIALLINE"
+          echo "relay boot order OK"
+
       - name: Fail if a .env or tinytuya artifact was ever committed
         run: |
           if git ls-files --error-unmatch \
-              home-controller/.env tinytuya.json devices.json \
+              home-controller/.env door-opener/.env \
+              door-opener/firmware/door_opener/config.h \
+              tinytuya.json devices.json \
               snapshot.json tuya-raw.json 2>/dev/null; then
             echo "A secret-bearing file is tracked by git"
             exit 1

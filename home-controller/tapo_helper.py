@@ -24,6 +24,10 @@ async def main():
     ip = data['ip']
     is_color = 'hue' in data and 'saturation' in data
     is_effect = 'effect' in data
+    # 'set' (the default) is every existing caller. 'read' is the door
+    # opener's flash, which has to know what the bulb was doing before it
+    # borrows it.
+    action = data.get('action', 'set')
 
     for attempt in range(3):
         try:
@@ -33,6 +37,21 @@ async def main():
             if device is None:
                 print(json.dumps({"error": "Could not connect"}))
                 sys.exit(1)
+
+            # Returns before the device.on() below, and it has to. Every
+            # command in this helper switches the bulb on first, so a read
+            # that fell through would turn the light on just by asking it
+            # what state it was in.
+            if action == 'read':
+                info = await device.get_device_info()
+                print(json.dumps({"ok": True, "state": {
+                    "device_on":  getattr(info, 'device_on', None),
+                    "brightness": getattr(info, 'brightness', None),
+                    "hue":        getattr(info, 'hue', None),
+                    "saturation": getattr(info, 'saturation', None),
+                    "color_temp": getattr(info, 'color_temp', None),
+                }}))
+                return
 
             await device.on()
             await asyncio.sleep(0.3)

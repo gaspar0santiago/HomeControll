@@ -1,14 +1,22 @@
 # HomeControll
 
-Two pieces of software that run the living room / bar smart-home setup:
+Three pieces of software that run the living room / bar smart-home setup:
 
 | Folder | What it is |
 | --- | --- |
 | [`home-controller/`](home-controller) | Node.js + Python server driving the lights, plugs, fairy curtains and cameras, with two touchscreen kiosk pages |
 | [`spotify-home-button/`](spotify-home-button) | Tiny Chrome extension that puts a "back to dashboard" button on Spotify, because Spotify won't load in an iframe |
+| [`door-opener/`](door-opener) | Street door opener: a phone page, a Supabase mailbox and an ESP32 relay across the intercom's release button |
 
-Everything runs on one Windows PC (a Surface Book 2) on the home LAN. Nothing
-is exposed to the internet and nothing talks to a vendor cloud at runtime.
+The first two run on one Windows PC (a Surface Book 2) on the home LAN.
+Nothing there is exposed to the internet and nothing talks to a vendor cloud
+at runtime.
+
+The door opener is deliberately separate: its page is a Netlify deploy, its
+logic is Supabase Edge Functions, and its device is an ESP32 that polls
+outward. Nothing forwards a port into the LAN, and the door keeps working
+while the home controller is down or being redeployed. The home controller
+only watches it, and cannot open it.
 
 ---
 
@@ -141,7 +149,7 @@ actually in party mode.
 | File | Role |
 | --- | --- |
 | `server.js` | Express app. All state, all REST endpoints, party interval, camera restream, child-process spawning |
-| `tapo_helper.py` | Tapo bulbs and the L920 bar strip: on/off, brightness, colour temp, hue/sat, effect presets |
+| `tapo_helper.py` | Tapo bulbs and the L920 bar strip: on/off, brightness, colour temp, hue/sat, effect presets, and `action: "read"` to fetch a bulb's current state without changing it |
 | `plug_helper.py` | The three Tuya plugs via `tinytuya`, local LAN control, credentials from `.env` |
 | `fairy_helper.py` | BLE fairy curtains: power, HSV colour, white, five music-reactive modes |
 | `public/index.html` | Main kiosk — zones, scenes, plugs, both camera feeds |
@@ -153,6 +161,13 @@ The repo also runs a small GitHub Actions check on every push and PR:
 syntax-checks `server.js` and the Python helpers, boots the server with no
 cameras configured and hits its endpoints, and fails if a `.env` or any
 tinytuya artifact was ever committed.
+
+It also covers the door opener: that the pass CLI refuses a guest pass with
+no expiry, that the CLI and the Edge Function derive the same PBKDF2 hash
+(if those ever drift, every pass silently stops working), that a Tapo state
+read does not switch the bulb on, that the door panel primes on startup
+instead of replaying old events, and that the ESP32 sketch still sets the
+relay pin level before its direction.
 
 ### REST API
 
@@ -170,6 +185,7 @@ tinytuya artifact was ever committed.
 | `POST` | `/screen/wake` | Wake them |
 | `GET` | `/screen/state` | Last screen action + timestamp |
 | `GET` | `/lights` | Serves `public/lights.html` |
+| `GET` | `/door/events` | Last ten street-door events for the kiosk panel, plus whether the door opener is configured at all. Read only, and there is no POST |
 
 ### Setup
 
@@ -195,6 +211,7 @@ notepad .env          # fill in every value
 | Optional | `MOTION_CAMERA` (which camera drives motion wake), `FFMPEG_PATH` |
 | Plugs | `PLUG_<DISCO\|SPOTLIGHT\|SPOTLIGHT2>_{ID,IP,KEY,VER}` |
 | Fairy | `FAIRY1_MAC`, `FAIRY2_MAC` (only used by `tools/fairy_test.py`) |
+| Door panel | `DOOR_EVENTS_URL`, `DOOR_DASHBOARD_KEY`, `DOOR_FLASH_*`, `DOOR_QUIET_FROM`/`_TO`. All optional; leave `DOOR_EVENTS_URL` empty and the panel disappears |
 
 Plug IDs and local keys come from the tinytuya wizard:
 
@@ -264,7 +281,6 @@ Then point kiosk 1 at `http://127.0.0.1:3000/` and kiosk 2 at
 - **Windows-only.** The display control shells out to PowerShell, and the
   ffmpeg default is a Windows path (overridable with `FFMPEG_PATH`).
 
----
 
 ## Part 2 — Spotify Home Button
 
@@ -307,3 +323,55 @@ If the server's IP ever changes, edit `DASHBOARD_URL` at the top of
   (`subtree: false`). Cheap, and enough for the navigations Spotify actually
   does, but a deeper re-render could drop the button until the next one.
 - **`open.spotify.com` only.** Not the desktop app, not `accounts.spotify.com`.
+
+---
+
+## Part 3: Door Opener
+
+A phone page that opens the street door. Full setup, wiring and security
+notes are in [`door-opener/README.md`](door-opener/README.md); this is the
+shape of it.
+
+```
+  phone  ->  Netlify page  ->  Supabase Edge Function
+                                 checks the pass server side
+                                 queues a command, 30s expiry
+                                        |
+                                        v
+                                 door_commands (Postgres)
+                                        ^
+                                        |  claimed atomically, every 2s
+                                 ESP32  ->  relay across the intercom's
+                                            existing release button
+```
+
+The relay contacts sit in parallel with the button the intercom already
+has, so a claimed command is indistinguishable from a finger on it, and the
+button keeps working regardless. The ESP32 never touches the 12V line.
+
+Passes come in two kinds: **resident** passes with no expiry, and **guest**
+passes valid only inside a window you set, optionally with a maximum number
+of uses. A guest pass with no expiry is refused, by the CLI and by a CHECK
+constraint in the schema. Passes are made with a CLI that prints the
+plaintext once and the SQL to store it; there is no admin UI on purpose.
+
+### What the home controller does with it
+
+Read only, and optional. It polls a separate Edge Function with its own key
+for the last ten attempts, shows them on the main kiosk's lower panel, and
+flashes a Tapo bulb on a successful open, restoring the bulb's exact
+previous state afterwards including off.
+
+It cannot open the door, and must not learn how. `door_claim()` is the only
+path that consumes a command and only the ESP32's function can reach it. A
+second claimer would win about half the races and those presses would
+vanish silently.
+
+Leave `DOOR_EVENTS_URL` empty in `home-controller/.env` and the panel hides
+itself and nothing is polled. The door does not depend on the home
+controller at all: turn the Surface Book off and the door still opens.
+
+### The rotary phone rig
+
+Untouched. That runs on its own timer modules off the intercom's call line
+and shares nothing with this.

@@ -294,6 +294,47 @@
                 transform 90ms var(--ease);
   }
   .util-btn:active { transform: scale(0.96); }
+
+  /* ── Door panel ──────────────────────────────────────────────
+     Last ten street-door events. Read only: this server watches the
+     door, it never opens it. Hidden entirely when the door opener is
+     not configured, the same way a missing camera hides its tile. */
+  .door-group { flex: 2.4 1 0; align-self: stretch; }
+  /* .util-group sets display:flex, which outranks the browser default for
+     [hidden]. Without this the panel shows an empty box on a kiosk whose
+     .env has no door opener configured. */
+  .door-group[hidden] { display: none; }
+  .door-log { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+
+  /* The rows divide whatever height the panel has rather than each
+     claiming a fixed one, so all ten fit at 1080p and at 1440p instead of
+     the tenth being clipped off the bottom. */
+  .door-row {
+    flex: 1 1 0; min-height: 19px;
+    display: grid; grid-template-columns: 52px 1fr auto;
+    align-items: center; gap: 10px;
+    padding: 1px 10px 1px 8px;
+    border-left: 3px solid var(--border); border-radius: 4px;
+    background: rgba(255,255,255,0.03);
+    font-size: 12px; line-height: 1.2;
+  }
+  .door-row .door-time  { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .door-row .door-label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .door-row .door-what  { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 11px; letter-spacing: 0.09em; }
+
+  .door-row.opened { border-left-color: var(--accent); }
+  .door-row.opened .door-what { color: var(--accent); }
+
+  /* A failure has to land as a failure from the couch, not as a word you
+     have to walk over and read. Filled red block, not red text. */
+  .door-row.failed { border-left-color: #ff5d5d; background: rgba(255,93,93,0.13); }
+  .door-row.failed .door-label { color: #ffc9c9; }
+  .door-row.failed .door-what {
+    color: #0a0a0f; background: #ff5d5d;
+    padding: 2px 7px; border-radius: 4px;
+  }
+
+  .door-empty { color: var(--muted); font-size: 12px; padding: 6px 8px; }
   .util-btn.active { background: rgba(200,255,0,0.15); border-color: var(--accent); color: var(--accent); }
   .util-wide { width: 100%; }
 
@@ -344,6 +385,7 @@
   <symbol id="i-music" viewBox="0 0 24 24"><path d="M9.4 17.6V5.6l9.8-2v12"/><circle cx="6.9" cy="17.6" r="2.5"/><circle cx="16.7" cy="15.6" r="2.5"/></symbol>
   <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2.4 12h3.9l2.5-6.8 4 13.6 2.5-6.8h6.3"/></symbol>
   <symbol id="i-equalizer" viewBox="0 0 24 24"><path d="M5.2 16.2V9.4M10.4 19V5M15.6 17V7.6M20.8 14.4v-3.6"/></symbol>
+  <symbol id="i-door" viewBox="0 0 24 24"><path d="M5.4 20.6h13.2M7.6 20.6V4.4a1 1 0 0 1 1.2-1l7.2 1.2a1 1 0 0 1 .8 1v15"/><circle class="solid" cx="14" cy="12.4" r="1"/></symbol>
   <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.4v8.4"/><path d="M7.3 6.6a7.5 7.5 0 1 0 9.4 0"/></symbol>
 </svg>
 
@@ -422,6 +464,10 @@
     <div class="util-group">
       <div class="util-label"><svg class="ico" aria-hidden="true"><use href="#i-power"/></svg>Displays</div>
       <button class="util-btn util-wide" onclick="screensOff()">Turn screens off</button>
+    </div>
+    <div class="util-group door-group" id="door-group" hidden>
+      <div class="util-label"><svg class="ico" aria-hidden="true"><use href="#i-door"/></svg>Street Door</div>
+      <div class="door-log" id="door-log"></div>
     </div>
   </aside>
 </div>
@@ -636,6 +682,87 @@ async function pullState() {
 }
 
 setInterval(pullState, 3000);
+
+// ── STREET DOOR PANEL ─────────────────────────────────────────
+// Polls /door/events on the same 3s cadence as the lights, deliberately
+// on its own interval: pullState pauses for 2s after every press, and the
+// door log going blank every time somebody touches a light would be worse
+// than useless.
+//
+// Read only. Nothing here can open the door.
+const DOOR_OUTCOMES = {
+  opened:        { text: 'OPENED',     failed: false },
+  unknown:       { text: 'WRONG PASS', failed: true  },
+  expired:       { text: 'EXPIRED',    failed: true  },
+  not_yet_valid: { text: 'TOO EARLY',  failed: true  },
+  revoked:       { text: 'REVOKED',    failed: true  },
+  used_up:       { text: 'USED UP',    failed: true  },
+  locked_out:    { text: 'LOCKED OUT', failed: true  },
+  throttled:     { text: 'BLOCKED',    failed: true  }
+};
+
+function doorTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '--:--';
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function renderDoor(data) {
+  const group = document.getElementById('door-group');
+  const log = document.getElementById('door-log');
+  if (!group || !log) return;
+
+  // Not set up in .env means the panel is not there at all, the same way
+  // an unplugged camera costs nothing.
+  if (!data.configured) { group.hidden = true; return; }
+  group.hidden = false;
+
+  if (data.error) {
+    log.innerHTML = '<div class="door-empty">Door unreachable. Retrying.</div>';
+    return;
+  }
+  if (!data.events.length) {
+    log.innerHTML = '<div class="door-empty">No door activity yet.</div>';
+    return;
+  }
+
+  log.innerHTML = '';
+  data.events.forEach(ev => {
+    const meta = DOOR_OUTCOMES[ev.outcome] || { text: String(ev.outcome).toUpperCase(), failed: true };
+    const row = document.createElement('div');
+    row.className = 'door-row ' + (meta.failed ? 'failed' : 'opened');
+
+    const time = document.createElement('span');
+    time.className = 'door-time';
+    time.textContent = doorTime(ev.at);
+
+    const label = document.createElement('span');
+    label.className = 'door-label';
+    // A wrong pass has no label to show, because there was no pass.
+    label.textContent = ev.label || 'unknown pass';
+
+    const what = document.createElement('span');
+    what.className = 'door-what';
+    what.textContent = meta.text;
+
+    row.append(time, label, what);
+    log.appendChild(row);
+  });
+}
+
+async function pullDoor() {
+  try {
+    renderDoor(await (await fetch('/door/events')).json());
+  } catch (e) {
+    // Same as pullState: a missed poll is not worth reporting, the next
+    // one is 3 seconds away.
+  }
+}
+
+pullDoor();
+setInterval(pullDoor, 3000);
+
+
 
 function toggleZone(zoneName) {
   const state = zoneState[zoneName];

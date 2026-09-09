@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="robots" content="noindex, nofollow">
+<title>Street Door</title>
+<link rel="stylesheet" href="door.css">
+</head>
+<body>
+
+<!-- Sits over everything on a successful open. Nothing else on the page
+     can be mistaken for it. -->
+<div class="takeover" id="takeover" hidden>
+  <div class="takeover-inner">
+    <svg class="takeover-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 12.4l5.2 5.2L20 6.8"/>
+    </svg>
+    <div class="takeover-title" id="takeover-title">DOOR OPEN</div>
+    <div class="takeover-sub" id="takeover-sub">Push the door now</div>
+    <div class="takeover-bar"><span id="takeover-fill"></span></div>
+  </div>
+</div>
+
+<main class="panel">
+
+  <header class="bar">
+    <span class="bar-name">STREET DOOR</span>
+    <button type="button" class="bar-mode" id="mode-toggle" aria-pressed="false">
+      Type instead
+    </button>
+  </header>
+
+  <!-- What has been entered. Characters, not dots: someone standing at a
+       door at night needs to see the typo. -->
+  <section class="readout" id="readout" aria-label="Pass entered so far">
+    <span class="readout-text" id="readout-text"></span>
+    <span class="readout-hint" id="readout-hint">Enter your pass</span>
+    <span class="caret" id="caret" aria-hidden="true"></span>
+  </section>
+
+  <input
+    class="typed"
+    id="typed"
+    type="text"
+    inputmode="text"
+    autocapitalize="characters"
+    autocomplete="off"
+    autocorrect="off"
+    spellcheck="false"
+    maxlength="64"
+    aria-label="Type your pass"
+    hidden>
+
+  <!-- One line, always present, so its appearing is never the signal.
+       Colour and wording carry the state. -->
+  <p class="status" id="status" role="status" aria-live="polite">&nbsp;</p>
+
+  <section class="keys" id="keys" aria-label="Pass keypad">
+    <!-- Built by door.js from the pass alphabet, so the page and the
+         generator can never drift apart. -->
+  </section>
+
+  <button type="button" class="open" id="open">
+    <span class="open-label">OPEN DOOR</span>
+    <span class="open-spinner" aria-hidden="true"></span>
+  </button>
+
+</main>
+
+<script src="config.js"></script>
+<script src="door.js"></script>
+</body>
+</html>

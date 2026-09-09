@@ -161,7 +161,9 @@ function checkPartyCycle() {
 
 // ── TAPO ──────────────────────────────────────────────────────
 function controlTapo(ip, payload) {
-  noteLightCommand();
+  // A read changes nothing, so it must not arm the motion cooldown or the
+  // door opener's flash would blind the detector every time it looks.
+  if (payload.action !== 'read') noteLightCommand();
   return new Promise((resolve, reject) => {
     const args = JSON.stringify({ email: process.env.TAPO_EMAIL, password: process.env.TAPO_PASSWORD, ip, ...payload });
     const proc = spawn('python', [path.join(__dirname, 'tapo_helper.py'), args], { cwd: __dirname, windowsHide: true });
@@ -366,6 +368,186 @@ app.post('/plug/control', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// ── DOOR OPENER (READ ONLY) ──────────────────────────────────
+// Mirrors the street door's attempt log onto the kiosk and flashes a bulb
+// when it opens.
+//
+// Read only, deliberately. This server does not claim door commands and
+// must never learn how: the ESP32 claims them, and a second claimer would
+// win roughly half the races and silently swallow those presses. The key
+// below only reaches door-events, which cannot claim anything.
+//
+// The door does not depend on any of this. Turn the server off, redeploy
+// it, unplug it, and the page and the ESP32 carry on without it.
+const DOOR_EVENTS_URL    = (process.env.DOOR_EVENTS_URL || '').trim();
+const DOOR_DASHBOARD_KEY = (process.env.DOOR_DASHBOARD_KEY || '').trim();
+const DOOR_POLL_MS       = 3000;   // the cadence both kiosks already poll at
+const DOOR_EVENT_LIMIT   = 10;
+const DOOR_FETCH_TIMEOUT_MS = 8000;
+
+const DOOR_FLASH_IP         = (process.env.DOOR_FLASH_IP || '').trim();
+const DOOR_FLASH_HUE        = parseInt(process.env.DOOR_FLASH_HUE || '120', 10);
+const DOOR_FLASH_SATURATION = parseInt(process.env.DOOR_FLASH_SATURATION || '90', 10);
+const DOOR_FLASH_BRIGHTNESS = parseInt(process.env.DOOR_FLASH_BRIGHTNESS || '100', 10);
+const DOOR_FLASH_MS         = parseInt(process.env.DOOR_FLASH_MS || '2500', 10);
+
+// Ten seconds. Two people arriving together are one arrival, and a bulb
+// that strobes on every press is worse than no bulb.
+const DOOR_FLASH_DEBOUNCE_MS = 10000;
+
+// Empty means never quiet. Both are HH:MM and the window may cross
+// midnight, which is the interesting case.
+const DOOR_QUIET_FROM = (process.env.DOOR_QUIET_FROM || '').trim();
+const DOOR_QUIET_TO   = (process.env.DOOR_QUIET_TO   || '').trim();
+
+let doorEvents = [];
+let doorLastEventId = 0;
+let doorPrimed = false;
+let doorLastFlashAt = 0;
+let doorFlashBusy = false;
+let doorError = null;
+
+const doorConfigured = Boolean(DOOR_EVENTS_URL && DOOR_DASHBOARD_KEY);
+
+function hhmmToMinutes(text) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(text);
+  if (!m) return null;
+  const hours = parseInt(m[1], 10), minutes = parseInt(m[2], 10);
+  if (hours > 23 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function inQuietHours(now = new Date()) {
+  const from = hhmmToMinutes(DOOR_QUIET_FROM);
+  const to   = hhmmToMinutes(DOOR_QUIET_TO);
+  if (from === null || to === null) return false;
+  const mins = now.getHours() * 60 + now.getMinutes();
+  // 23:00 to 07:00 wraps past midnight, so the two halves are an OR.
+  return from <= to ? (mins >= from && mins < to) : (mins >= from || mins < to);
+}
+
+// Rebuilds the payload that puts the bulb back exactly where it was.
+// color_temp is 0 while a Tapo bulb is in colour mode, which is how the
+// two modes are told apart.
+function restoreTapo(ip, state) {
+  const payload = {};
+  if (state.color_temp > 0) {
+    payload.color_temp = state.color_temp;
+  } else if (state.hue !== null && state.saturation !== null) {
+    payload.hue = state.hue;
+    payload.saturation = state.saturation;
+  }
+  if (state.brightness !== null) payload.brightness = state.brightness;
+  // Every setter in tapo_helper.py switches the bulb on first, so off is
+  // restored by asking for it last, which the helper already does when
+  // `on` is false. Without this, arriving at 1am leaves the lounge lit
+  // until morning.
+  payload.on = state.device_on === true;
+  return controlTapo(ip, payload);
+}
+
+async function flashDoorBulb() {
+  if (!DOOR_FLASH_IP || doorFlashBusy) return;
+  if (Date.now() - doorLastFlashAt < DOOR_FLASH_DEBOUNCE_MS) return;
+  if (inQuietHours()) {
+    console.log('Door opened, flash skipped (quiet hours)');
+    return;
+  }
+
+  doorFlashBusy = true;
+  doorLastFlashAt = Date.now();
+  let before = null;
+
+  try {
+    const read = await controlTapo(DOOR_FLASH_IP, { action: 'read' });
+    before = read.state;
+    await controlTapo(DOOR_FLASH_IP, {
+      hue: DOOR_FLASH_HUE,
+      saturation: DOOR_FLASH_SATURATION,
+      brightness: DOOR_FLASH_BRIGHTNESS,
+      on: true
+    });
+    await new Promise(resolve => setTimeout(resolve, DOOR_FLASH_MS));
+  } catch (e) {
+    console.error('Door flash failed:', e.message);
+  }
+
+  // Restore runs even when the flash half failed, or the bulb sits on the
+  // flash colour until somebody notices.
+  try {
+    if (before) await restoreTapo(DOOR_FLASH_IP, before);
+  } catch (e) {
+    console.error('Door flash restore failed:', e.message);
+  }
+
+  doorFlashBusy = false;
+}
+
+async function fetchDoorEvents() {
+  const res = await fetch(`${DOOR_EVENTS_URL}?limit=${DOOR_EVENT_LIMIT}`, {
+    headers: { 'x-dashboard-key': DOOR_DASHBOARD_KEY },
+    signal: AbortSignal.timeout(DOOR_FETCH_TIMEOUT_MS)
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  return Array.isArray(data.events) ? data.events : [];
+}
+
+async function doorTick() {
+  try {
+    const events = await fetchDoorEvents();
+    doorError = null;
+    doorEvents = events;
+
+    const newestId = events.reduce((max, e) => Math.max(max, e.id || 0), 0);
+
+    // The first fetch records where we are and triggers nothing. Without
+    // it a restart replays the last ten events and flashes the lounge for
+    // an open that happened hours ago, at whatever hour the server came
+    // back up.
+    if (!doorPrimed) {
+      doorPrimed = true;
+      doorLastEventId = newestId;
+      console.log(`Door panel primed at event ${newestId} (${events.length} shown)`);
+      return;
+    }
+
+    const fresh = events.filter(e => e.id > doorLastEventId);
+    doorLastEventId = Math.max(doorLastEventId, newestId);
+
+    if (fresh.some(e => e.outcome === 'opened')) {
+      // Not awaited: a slow or unreachable bulb must not hold up the next
+      // poll, and every failure inside is already swallowed.
+      flashDoorBulb();
+    }
+  } catch (e) {
+    // Kept, not thrown. The panel shows the door as unreachable and the
+    // next tick tries again; nothing else on the kiosk is affected.
+    doorError = e.message;
+  }
+}
+
+// What the kiosk polls. Same shape as /cameras: it says whether the
+// feature is configured at all, so the panel can hide itself.
+app.get('/door/events', (req, res) => res.json({
+  configured: doorConfigured,
+  error: doorError,
+  events: doorEvents
+}));
+
+if (doorConfigured) {
+  console.log('Door panel polling ' + DOOR_EVENTS_URL);
+  if (DOOR_FLASH_IP) {
+    console.log(`Door flash on ${DOOR_FLASH_IP}` +
+      (hhmmToMinutes(DOOR_QUIET_FROM) !== null && hhmmToMinutes(DOOR_QUIET_TO) !== null
+        ? `, quiet ${DOOR_QUIET_FROM} to ${DOOR_QUIET_TO}` : ''));
+  }
+  doorTick();
+  setInterval(doorTick, DOOR_POLL_MS);
+} else {
+  console.log('Door panel disabled (set DOOR_EVENTS_URL and DOOR_DASHBOARD_KEY in .env)');
+}
 
 app.listen(process.env.PORT, () => {
   console.log(`Home controller running at http://127.0.0.1:${process.env.PORT}`);

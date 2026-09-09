@@ -326,7 +326,32 @@ appears, install Silicon Labs' CP210x VCP driver.
 
 ## Setup, in order
 
-### 1. Database
+Each step is checkable on its own, and they are ordered so that nothing
+depends on something you have not built yet.
+
+Only two things genuinely need to exist before others: **Supabase before
+everything**, and **a pass before you can test anything**. The Netlify page
+and the ESP32 do not depend on each other at all, so their order is up to
+you, and the hardware can be proved on day one with neither.
+
+### 1. Prove the relay works
+
+Before anything else, and before any account exists anywhere. Set
+`DOOR_BENCH_TEST 1` in `config.h`, flash the board, and watch the relay.
+
+With that flag the sketch returns out of `setup()` before it touches WiFi,
+so the untouched `config.h.example` values are fine. No Supabase, no
+Netlify, no keys. Just the board, the relay and a USB cable.
+
+Full details, including what each failure looks like, are in
+**Bench test it first** in the Hardware section above. The one that matters:
+press EN a dozen times and the relay must stay silent through every reset.
+
+Do this the day the parts arrive. Everything below is software and can wait
+for a wet weekend; this is the step that tells you whether the hardware you
+bought does what it should.
+
+### 2. Database
 
 Create a Supabase project. In the SQL editor, paste and run
 [`supabase/schema.sql`](supabase/schema.sql). That creates three tables with
@@ -336,7 +361,7 @@ Functions call.
 No policies is the point. Anon and authenticated can read and write nothing.
 Only the service role key, which never leaves the Edge Functions, gets in.
 
-### 2. Edge Functions
+### 3. Edge Functions
 
 ```bash
 cd door-opener
@@ -360,30 +385,18 @@ supabase functions deploy door-events --no-verify-jwt
 Supabase account and no token: `door-open` authenticates with the pass
 itself, and the other two with their own keys.
 
-### 3. The page
-
-Edit [`public/config.js`](public/config.js) and put your project ref in
-`openUrl`. That is the only edit the page needs.
-
-In Netlify, create a site from this repo and set **Base directory** to
-`door-opener`. It reads `netlify.toml` from there and publishes `public/`.
-There is no build step.
-
-Or by hand:
+### 4. Your first pass
 
 ```bash
 cd door-opener
-netlify deploy --prod
+node tools/make-pass.js resident --label "Santi"
 ```
 
-Then tighten two things now that you know your URLs:
+It prints the pass once and the SQL to store it. Run the SQL in the Supabase
+SQL editor. The plaintext is never stored and cannot be recovered, so if you
+lose it, generate another.
 
-- `netlify.toml`: narrow `connect-src` from `https://*.supabase.co` to your
-  own project.
-- `.env`: set `DOOR_ALLOWED_ORIGIN` to the Netlify origin and re-run
-  `supabase secrets set --env-file .env`.
-
-### 4. The ESP32
+### 5. The ESP32
 
 There is no setup portal and no web page on the board. Configuration is a
 header file that gets compiled in, so changing any of it means editing
@@ -413,14 +426,9 @@ and device key never reach the repo. Open `door_opener.ino` in the Arduino
 IDE and `config.h` appears as a second tab, which is usually easier than
 editing it separately.
 
-**Do the bench test before you fill anything in.** With
-`DOOR_BENCH_TEST 1`, the sketch returns out of `setup()` before it touches
-WiFi, so the placeholder values in `config.h` are fine and you do not need
-Supabase to exist yet. Flash it, watch the relay, prove the jumper. Then
-come back and fill in the real values with `DOOR_BENCH_TEST 0`.
-
-For the real run, fill in the WiFi credentials, the `door-poll` URL, and
-the same `DOOR_DEVICE_KEY` you set in step 2.
+Step 1 needed none of this filled in. Now set `DOOR_BENCH_TEST` back to 0
+and fill in the WiFi credentials, the `door-poll` URL, and
+the same `DOOR_DEVICE_KEY` you set in step 3.
 
 **The WiFi must be 2.4GHz.** The ESP32 has no 5GHz radio at all. If your
 router publishes one merged SSID for both bands this usually still works,
@@ -455,9 +463,9 @@ and paste the last certificate in the chain, BEGIN and END lines included.
 Flash `door_opener.ino` with the Arduino IDE (board: ESP32 Dev Module) and
 watch the serial monitor at 115200.
 
-**Do the bench test in the Hardware section above before wiring anything to
-the intercom.** It is the step that tells you the jumper is right, and the
-one that catches a relay that fires on reset.
+If you skipped step 1, do it now, before wiring anything to the intercom.
+It is the step that tells you the jumper is right and catches a relay that
+fires on reset.
 
 Once it is flashed, unplug it from the computer and put it on a phone
 charger. The USB cable was only ever for flashing and for reading the
@@ -465,24 +473,62 @@ serial log; after that it is just 5V. Nothing about the door needs a
 computer, and the board is not reachable from one. It makes outbound HTTPS
 requests and accepts no connections.
 
-### 5. Your first pass
+### 6. Open the door with curl
+
+You now have everything except a nice way to type a pass. Prove it with
+curl before building one:
+
+```bash
+curl -X POST https://YOUR-PROJECT-REF.supabase.co/functions/v1/door-open \
+  -H 'content-type: application/json' \
+  -d '{"pass":"YOUR-PASS-HERE"}'
+```
+
+`{"ok":true,"reason":"opened","ttl":30}` and a click from the relay within
+two seconds means the whole chain works: the pass was checked server side, a
+command was queued, and the ESP32 claimed it and pulsed.
+
+What the failures tell you:
+
+| Response | Where to look |
+| --- | --- |
+| `{"ok":false,"reason":"unknown"}` | The pass is wrong, or the SQL insert never ran. Check `select * from door_pass_status` |
+| `ok:true` but no click | The board. Serial monitor at 115200 says whether it is polling, and a 401 there means `DOOR_DEVICE_KEY` does not match |
+| Connection refused or a 404 | The function is not deployed, or the project ref in the URL is wrong |
+
+Getting this far means the door works. The page is a front end for this one
+request.
+
+### 7. The page
+
+Edit [`public/config.js`](public/config.js) and put your project ref in
+`openUrl`. That is the only edit the page needs.
+
+In Netlify, create a site from this repo and set **Base directory** to
+`door-opener`. It reads `netlify.toml` from there and publishes `public/`.
+There is no build step.
+
+Or by hand:
 
 ```bash
 cd door-opener
-node tools/make-pass.js resident --label "Santi"
+netlify deploy --prod
 ```
 
-It prints the pass once and the SQL to store it. Run the SQL in the Supabase
-SQL editor. The plaintext is never stored and cannot be recovered, so if you
-lose it, generate another.
+Then tighten two things now that you know your URLs:
 
-### 6. The kiosk panel (optional)
+- `netlify.toml`: narrow `connect-src` from `https://*.supabase.co` to your
+  own project.
+- `.env`: set `DOOR_ALLOWED_ORIGIN` to the Netlify origin and re-run
+  `supabase secrets set --env-file .env`.
+
+### 8. The kiosk panel (optional)
 
 In `home-controller/.env`:
 
 ```
 DOOR_EVENTS_URL=https://YOUR-PROJECT-REF.supabase.co/functions/v1/door-events
-DOOR_DASHBOARD_KEY=the-dashboard-key-from-step-2
+DOOR_DASHBOARD_KEY=the-dashboard-key-from-step-3
 DOOR_FLASH_IP=192.168.68.61
 DOOR_QUIET_FROM=23:00
 DOOR_QUIET_TO=07:00

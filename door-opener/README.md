@@ -97,30 +97,50 @@ door is nothing.
 
 ### What the polling costs
 
-A 2 second poll is not free, and this is the one number worth knowing
-before you pick a provider or a plan:
+Two loops run continuously, and both bill as Edge Function invocations:
 
-| Poll interval | Requests per month |
+| Loop | Interval | Requests per month |
+| --- | --- | --- |
+| `door-poll`, the ESP32 | 2s | 1,296,000 |
+| `door-events`, the home controller | 3s | 864,000 |
+| **Combined** | | **2,160,000** |
+
+Against a Supabase free tier of **500,000 Edge Function invocations**, that
+is 4.3 times over. It is a floor rather than a peak: both loops run all
+month whether anyone touches the door or not, which is the price of the
+design being this simple.
+
+Egress is not the problem. At roughly 500 bytes a response the same traffic
+is about 1.1 GB against a 5 GB allowance.
+
+Nor is idling: providers that pause inactive free projects will never pause
+this one.
+
+The lever on each loop is a constant, `POLL_INTERVAL_MS` in
+`door_opener.ino` and `DOOR_POLL_MS` in `home-controller/server.js`:
+
+| Interval | Requests per month, one loop |
 | --- | --- |
-| 2s (shipped default) | 1,296,000 |
-| 3s | 864,000 |
+| 2s | 1,296,000 |
 | 5s | 518,400 |
 | 10s | 259,200 |
 | 30s | 86,400 |
+| 60s | 43,200 |
 
-That is a floor, not a peak. The board polls at that rate all month whether
-anyone touches the door or not, which is the tradeoff for the design being
-this simple.
+Fitting both loops inside 500,000 means about 12 seconds each, which is a
+poor door. The two ways out are worth knowing before you pick a plan:
 
-Check it against your plan's function invocation allowance before you
-assume the free tier covers it, because 1.3 million a month is above most
-free tiers. If it does not fit, the lever is `POLL_INTERVAL_MS` in
-`door_opener.ino`, and the table above says exactly what each setting buys.
-Five seconds is still a door that opens while you are putting your phone
-back in your pocket.
-
-One thing that is not a problem: providers that pause idle free projects
-will never pause this one. A poll every few seconds is continuous activity.
+- **The dashboard loop is the cheap one to fix.** The kiosk polls the home
+  controller every 3 seconds, but the home controller does not have to poll
+  Supabase at that rate to keep up. Raising `DOOR_POLL_MS` to 60s costs
+  43,200 a month and only means a failed attempt can take a minute to
+  appear on the kiosk. What it does delay is the bulb flash, which is the
+  part you actually want prompt.
+- **The device loop is the expensive one, and Edge Functions are not the
+  only way to run it.** The same free tier lists **unlimited API requests**
+  for the REST API, and claiming a command is a single `door_claim()` call
+  that PostgREST can serve directly. Moving that one hot loop off Edge
+  Functions is what buys a 2 second door on a free plan.
 
 ### Why Supabase and not the database your page host offers
 
@@ -722,10 +742,10 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
   There is no sensor and no path back from the relay. The ESP32 claims
   within 2 seconds, and the success screen counts down a window in which to
   push. If the board is offline the page still says the door opened.
-- **The board polls all month whether anyone uses the door or not.** At the
-  shipped 2 second interval that is about 1.3 million function invocations
-  a month, which is above most free tiers. See **What the polling costs**
-  above; `POLL_INTERVAL_MS` is the lever.
+- **Both poll loops run all month whether anyone uses the door or not.** At
+  the shipped intervals that is about 2.16 million Edge Function
+  invocations a month against a Supabase free tier of 500,000. See **What
+  the polling costs** above for the levers and the two ways out.
 - **Response time grows with the number of passes.** Every pass is hashed on
   every attempt, which is what keeps the timing flat. Roughly 55ms per pass,
   so 20 passes is about 1.1 seconds. Past 40 or so, prune long dead ones.

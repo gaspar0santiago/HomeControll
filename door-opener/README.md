@@ -606,12 +606,26 @@ Settings that matter when you create the site:
 | Build command | empty | There is no build step and there should not be one |
 | Publish directory | `public` | Relative to the base directory |
 | Branch to deploy | `main` | Not a feature branch |
+| Functions directory | empty | The greyed `netlify/functions` is placeholder text, not a value. Every function in this project runs on Supabase |
 | Deploy previews | off | There is no review workflow for this page, and fewer public copies of your door page is better hygiene |
 
 **Name the site something that does not identify the building.** The URL is
 not a secret and it is not what protects the door, the pass is. But a name
 that says which address it opens invites attempts you would otherwise never
 see, and every one of those is a row in your lockout table.
+
+**Check the headers landed, because Base directory failing is silent.** As
+soon as the first deploy finishes:
+
+```bash
+curl -sI https://YOUR-SITE.netlify.app | grep -i 'content-security-policy\|strict-transport'
+```
+
+Two lines back means Netlify found `netlify.toml` and the page is protected.
+Nothing back means Base directory is wrong: the page will still load and
+look completely normal, with no CSP, no HSTS and no clickjacking
+protection. The deploy log also names the directory it published, which
+should end in `door-opener/public`.
 
 Deploying by hand works too, and reads the same `netlify.toml`:
 

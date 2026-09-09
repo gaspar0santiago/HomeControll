@@ -390,6 +390,34 @@ appears, install Silicon Labs' CP210x VCP driver.
 Each step is checkable on its own, and they are ordered so that nothing
 depends on something you have not built yet.
 
+### Which machine does what
+
+Almost none of this is tied to a particular computer, which is worth
+knowing before you start on the wrong one.
+
+| Step | Where |
+| --- | --- |
+| Supabase dashboard, SQL editor, deploying functions | any browser |
+| Netlify settings, editing `config.js` on GitHub | any browser |
+| Generating keys and passes | any browser, `tools/make-pass.html` or the console |
+| Testing with curl, or by typing a pass into the page | anywhere with internet |
+| **Flashing the ESP32** | whichever machine the board is plugged into |
+| **`home-controller/.env` and restarting the server** | the kiosk PC only |
+
+The board does not care where it was flashed from. It reaches your WiFi on
+its own radio using the credentials compiled into it, not through the
+laptop.
+
+Two files end up holding secrets on disk, and both are gitignored:
+`firmware/door_opener/config.h` has your WiFi password and the device key,
+and `home-controller/.env` has the dashboard key. Keep them on a machine
+with disk encryption on, and put the keys in a password manager rather than
+a scratch file, because neither is recoverable.
+
+Pick the machine you will keep the Arduino setup and `config.h` on. You
+will want it again when the root certificate rotates, when you change WiFi,
+or when you rotate the device key.
+
 Only two things genuinely need to exist before others: **Supabase before
 everything**, and **a pass before you can test anything**. The Netlify page
 and the ESP32 do not depend on each other at all, so their order is up to
@@ -657,13 +685,29 @@ the upload will fail with a busy port.
 
 Then paste the root certificate. While `SUPABASE_ROOT_CA` is empty the board
 works but does not verify who it is talking to, and prints a warning on every
-boot saying so. Get the certificate with:
+boot saying so.
+
+**No openssl needed.** Windows does not ship it, and the browser already has
+the certificate:
+
+1. Open `https://YOUR-PROJECT-REF.supabase.co` in Chrome or Edge
+2. Click the padlock, then **Connection is secure**, then
+   **Certificate is valid**
+3. On the **Details** tab, select the **top** entry in the tree. That is the
+   root. The one named after your project is the leaf, and pinning that
+   would break the moment it renews, which is every few months
+4. **Export**, saving as Base64 / PEM
+5. Open the saved file in Notepad and paste its contents into
+   `SUPABASE_ROOT_CA`
+
+On a machine with openssl, this does the same thing:
 
 ```bash
-openssl s_client -showcerts -connect YOUR-PROJECT-REF.supabase.co:443 </dev/null 2>/dev/null
+openssl s_client -showcerts -connect YOUR-PROJECT-REF.supabase.co:443 </dev/null
 ```
 
-and paste the last certificate in the chain, BEGIN and END lines included.
+Take the **last** certificate in the output: the chain prints leaf first, so
+the root is at the bottom.
 
 Flash `door_opener.ino` with the Arduino IDE (board: ESP32 Dev Module) and
 watch the serial monitor at 115200.

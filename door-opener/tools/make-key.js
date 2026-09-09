@@ -17,16 +17,27 @@
 
 const crypto = require('crypto');
 
+// The two keys are checked in different places, which is why only one of
+// them needs a row in door_keys.
+//
+//   device     door_claim() compares it against door_keys inside Postgres,
+//              because the ESP32 reaches PostgREST directly and there is no
+//              Edge Function in that path to hold a secret.
+//   dashboard  door-events compares it against its own Edge Function
+//              secret. It never reads door_keys, so a row there would sit
+//              unused and only invite the question of why it exists.
 const KINDS = {
   device: {
     what: 'the ESP32',
     can: 'claim one waiting command, and nothing else',
-    where: 'firmware/door_opener/config.h, as DOOR_DEVICE_KEY'
+    where: 'firmware/door_opener/config.h, as DOOR_DEVICE_KEY',
+    needsRow: true
   },
   dashboard: {
     what: 'the home controller',
     can: 'read the recent attempt log, without IP addresses',
-    where: 'home-controller/.env, as DOOR_DASHBOARD_KEY'
+    where: 'home-controller/.env, as DOOR_DASHBOARD_KEY',
+    needsRow: false
   }
 };
 
@@ -65,13 +76,26 @@ console.log(`
 
   It can:  ${meta.can}
   Goes in: ${meta.where}
-
-  Run this in the Supabase SQL editor:
+` + (meta.needsRow ? `
+  Then run this in the Supabase SQL editor, so the database knows its
+  hash. door_claim() checks the key against this row:
 
     insert into door_keys (name, hash)
     values ('${kind}', '${hash}')
     on conflict (name) do update set hash = excluded.hash;
 
-  To rotate later, generate a new one and run that same statement. The
-  old key stops working the moment it commits.
-`);
+  To rotate later, generate a new one and run that same statement. The old
+  key stops working the moment it commits.
+` : `
+  Nothing to run in SQL for this one. door-events compares it against its
+  own Edge Function secret and never reads the door_keys table, so setting
+  the secret is the whole job:
+
+    Project Settings > Edge Functions > Secrets > DOOR_DASHBOARD_KEY
+
+  Or with the CLI, from door-opener/ with the key in .env:
+
+    supabase secrets set --env-file .env
+
+  To rotate later, generate a new one and replace the secret.
+`));

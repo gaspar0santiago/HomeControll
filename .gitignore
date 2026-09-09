@@ -12,6 +12,23 @@ devices.json
 snapshot.json
 tuya-raw.json
 
+# Door opener. .env above already covers door-opener/.env at any depth;
+# these are the module's own secret-bearing files.
+#
+#   config.h   WiFi password, the device key and the pinned root cert
+#   .netlify/  the linked site id and the deploy auth token
+#   supabase/.temp/ and .branches/  CLI state, including project refs
+door-opener/firmware/door_opener/config.h
+.netlify/
+supabase/.temp/
+supabase/.branches/
+
+# Generated passes must never land in the repo. make-pass.js prints the
+# plaintext to the terminal once and nowhere else, so this only catches a
+# redirect into a file.
+passes.txt
+*.pass
+
 # ── Node ──────────────────────────────────────────────────────
 node_modules/
 npm-debug.log*

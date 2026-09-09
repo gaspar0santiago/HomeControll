@@ -1,0 +1,69 @@
+# Netlify config for the door page.
+#
+# This is a monorepo, so set the site's Base directory to "door-opener" in
+# the Netlify UI. Netlify then reads this file and resolves publish
+# relative to it. Deploying by hand from inside door-opener/ works too:
+#
+#   cd door-opener
+#   netlify deploy --prod
+#
+# There is no build step. The page is three static files and it stays that
+# way on purpose: this has to keep working when nothing else does.
+
+[build]
+  publish = "public"
+  command = ""
+
+# ── Security headers ──────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # default-src 'none' means anything not named below is refused.
+    #
+    # script-src 'self' is why the page is split into index.html, door.css
+    # and door.js instead of following the kiosk pages' single file style:
+    # a CSP worth having cannot allow 'unsafe-inline'.
+    #
+    # connect-src: tighten this to your own project once you know the ref,
+    #
+    #   connect-src https://abcdefghijkl.supabase.co
+    #
+    # The wildcard is the shipped default only so the page works before you
+    # have edited anything.
+    Content-Security-Policy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://*.supabase.co; img-src 'self' data:; font-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
+
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+
+    # Nothing here needs a sensor, a camera or a wallet.
+    Permissions-Policy = "accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), usb=()"
+
+    # A door page has no business in a search index. The meta robots tag in
+    # index.html says the same thing; this covers the other files.
+    X-Robots-Tag = "noindex, nofollow, noarchive"
+
+# The page and its config must never be served stale. A guest opening a
+# cached copy pointed at an old function URL would just see failures.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/config.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/door.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/door.css"
+  [headers.values]
+    Cache-Control = "no-cache"

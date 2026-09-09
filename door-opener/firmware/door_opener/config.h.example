@@ -1,0 +1,53 @@
+// Copy to config.h and fill in. config.h is gitignored; this file is not,
+// so never put a real value in here.
+//
+//   cp config.h.example config.h
+//
+#pragma once
+
+// ── WiFi ──────────────────────────────────────────────────────
+#define WIFI_SSID       "your-wifi"
+#define WIFI_PASSWORD   "your-wifi-password"
+
+// ── Supabase ──────────────────────────────────────────────────
+// Your project ref is the first part of the project URL in the Supabase
+// dashboard.
+#define DOOR_POLL_URL   "https://YOUR-PROJECT-REF.supabase.co/functions/v1/door-poll"
+
+// The device key, from:  supabase secrets set DOOR_DEVICE_KEY=...
+// This is the only credential on the board. It cannot read the passes
+// table and it cannot do anything but claim a command that someone has
+// already earned. Rotate it on its own, without touching the dashboard key.
+#define DOOR_DEVICE_KEY "paste-the-device-key"
+
+// A name for this board, so claimed_by in door_commands says who took it.
+#define DOOR_DEVICE_NAME "esp32-street-door"
+
+// ── Relay wiring ──────────────────────────────────────────────
+// The pin driving IN on the opto isolated relay module.
+#define RELAY_PIN 26
+
+// Almost every cheap opto isolated module is active low: IN pulled to
+// ground energises the coil. Set this to 0 only if yours is the other way
+// round, and check with a multimeter before wiring it to the intercom.
+#define RELAY_ACTIVE_LOW 1
+
+// ── TLS ───────────────────────────────────────────────────────
+// PASTE THE ROOT CERTIFICATE HERE. While this is empty the board still
+// works, but it does not verify who it is talking to, and anyone who can
+// redirect its traffic can read the device key straight off the wire.
+//
+// Get it with:
+//
+//   openssl s_client -showcerts -connect YOUR-PROJECT-REF.supabase.co:443 \
+//     </dev/null 2>/dev/null
+//
+// and paste the LAST certificate in the chain (the root) between the
+// markers below, BEGIN and END lines included.
+//
+// If polling starts failing with a TLS error months from now, the root
+// rotated: repeat the command above and paste the new one. The physical
+// intercom button is unaffected either way, so a stale certificate stops
+// the web page working, not the building.
+static const char SUPABASE_ROOT_CA[] = R"CERT(
+)CERT";

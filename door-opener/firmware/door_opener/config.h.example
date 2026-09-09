@@ -93,12 +93,22 @@
 // works, but it does not verify who it is talking to, and anyone who can
 // redirect its traffic can read the device key straight off the wire.
 //
-// Get it with:
+// Get it without any tools, in the browser:
+//
+//   1. Open https://YOUR-PROJECT-REF.supabase.co in Chrome or Edge
+//   2. Click the padlock in the address bar
+//   3. "Connection is secure" > "Certificate is valid"
+//   4. Details tab. In the tree at the top, select the TOP entry: the
+//      root, not the one named after your project
+//   5. Export, and save as Base64 / PEM (.crt or .pem)
+//   6. Open that file in Notepad and paste its contents below
+//
+// Or, on a machine that has openssl:
 //
 //   openssl s_client -showcerts -connect YOUR-PROJECT-REF.supabase.co:443 </dev/null
 //
-// and paste the LAST certificate in the chain (the root) between the
-// markers below, BEGIN and END lines included.
+// and take the LAST certificate in the output, BEGIN and END lines
+// included. It is the last one because the chain is printed leaf first.
 //
 // If polling starts failing with a TLS error months from now, the root
 // rotated: repeat the command above and paste the new one. The physical

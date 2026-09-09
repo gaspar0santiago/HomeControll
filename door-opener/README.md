@@ -144,6 +144,56 @@ while you are fitting it.
 a switch. There is no correct way round, so any two conductors will do and
 the colours are for your own sanity rather than for the circuit.
 
+### If your cable is CCA
+
+Copper clad aluminium is an aluminium core with a thin copper skin. It is
+what most cheap red and black 12V speaker cable is, and 20 AWG CCA is fine
+here: aluminium carries about 61% of what copper does, so it behaves like
+22 AWG copper, which over a three metre run at an amp drops about a third
+of a volt. On a 12V strike that is nothing.
+
+Two habits make it last, both because the aluminium underneath creeps under
+pressure in a way copper does not:
+
+- **Re-tighten the relay's screw terminals a week after fitting.** The core
+  will have relaxed slightly. This is the whole trick with aluminium and it
+  takes ten seconds.
+- **Solder any cable to cable joint rather than crimping or splicing it.**
+  CCA solders well, because the surface the solder wets is copper. Solder
+  the two wires together, heatshrink over it, done.
+
+That second point does not contradict the ferrule advice above. Soldering
+two wires to each other is a good joint. Tinning a wire end that then goes
+under a screw is a bad one, because the solder cold flows and the screw
+loosens. Both are still true.
+
+### About the quick splice connectors
+
+The solderless, no stripping kind work by pressing a blade through the
+insulation into the conductor. They are quick, and on solid copper they are
+fine.
+
+On stranded CCA they are the least reliable joint in this build. The blade
+cuts through the copper skin into the aluminium underneath, which then has
+a freshly exposed surface to oxidise, against a dissimilar metal, under a
+pressure the aluminium slowly creeps away from. Aluminium oxide is an
+insulator, unlike copper oxide, so the joint gets worse rather than
+settling.
+
+None of that is fast or dramatic. It is a door that works for eight months
+and then starts needing two presses.
+
+So prefer, in this order:
+
+1. The intercom's own screw terminal, if it has one.
+2. Soldered and heatshrunk.
+3. The relay's screw terminals, which the design requires anyway.
+4. A quick splice, if there is genuinely nothing else.
+
+If you do end up using one, note where it is. When the door gets flaky
+months from now, that joint is the first thing to check and the log on the
+kiosk will tell you when it started.
+
 ### Before you cut anything
 
 Look for terminals on the intercom first. A lot of door phones have a

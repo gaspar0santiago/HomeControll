@@ -1,3 +1,16 @@
+// GENERATED FILE, DO NOT EDIT.
+//
+// Built by tools/bundle-functions.js from index.ts plus _shared/door.ts,
+// inlined into one file so it can be pasted into the Supabase dashboard,
+// which cannot express an import reaching outside the function's folder.
+//
+// Edit index.ts or _shared/door.ts and regenerate:
+//
+//   node tools/bundle-functions.js
+//
+// Deploying with the CLI uses index.ts and ignores this file entirely.
+
+// ── inlined from _shared/door.ts ──────────────────────────────
 // Shared helpers for the three door Edge Functions.
 //
 // Plain fetch against PostgREST rather than a Supabase client library: the
@@ -8,7 +21,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 /** Calls a SECURITY DEFINER function as the service role. */
-export async function rpc<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
+async function rpc<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
     method: "POST",
     headers: {
@@ -32,7 +45,7 @@ export async function rpc<T>(name: string, args: Record<string, unknown> = {}): 
  * LAST entry is the one the platform appended; the earlier entries can be
  * anything the client felt like typing.
  */
-export function clientIp(req: Request): string | null {
+function clientIp(req: Request): string | null {
   const cf = req.headers.get("cf-connecting-ip");
   if (cf) return cf.trim();
 
@@ -44,7 +57,7 @@ export function clientIp(req: Request): string | null {
   return req.headers.get("x-real-ip")?.trim() ?? null;
 }
 
-export function hexToBytes(hex: string): Uint8Array {
+function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length >> 1);
   for (let i = 0; i < out.length; i++) {
     out[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
@@ -52,7 +65,7 @@ export function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-export function bytesToHex(bytes: Uint8Array): string {
+function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -60,7 +73,7 @@ export function bytesToHex(bytes: Uint8Array): string {
  * Compares without an early return, so the time taken does not depend on
  * how many leading bytes happened to line up.
  */
-export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
@@ -75,7 +88,7 @@ export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
  * Uint8Array: an annotated Uint8Array widens to Uint8Array<ArrayBufferLike>
  * under strict TypeScript, which deriveBits will not accept.
  */
-export async function pbkdf2(
+async function pbkdf2(
   pass: string,
   saltHex: string,
   iterations: number,
@@ -107,7 +120,7 @@ export async function pbkdf2(
 // nothing in the logs to explain it. Treat empty and whitespace as unset.
 const ALLOWED_ORIGIN = Deno.env.get("DOOR_ALLOWED_ORIGIN")?.trim() || "*";
 
-export const corsHeaders: Record<string, string> = {
+const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Headers": "content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -115,7 +128,7 @@ export const corsHeaders: Record<string, string> = {
   Vary: "Origin",
 };
 
-export function json(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
+function json(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -132,8 +145,54 @@ export function json(body: unknown, status = 200, extra: Record<string, string> 
  * Compares a caller supplied key against the expected one without an early
  * return. Missing or misconfigured keys fail closed.
  */
-export function keyMatches(supplied: string | null, expected: string | undefined): boolean {
+function keyMatches(supplied: string | null, expected: string | undefined): boolean {
   if (!expected || !supplied) return false;
   const enc = new TextEncoder();
   return timingSafeEqual(enc.encode(supplied), enc.encode(expected));
 }
+
+// ── door-events/index.ts ──────────────────────────────────────────
+// door-events: read only feed for the home controller's kiosk panel.
+//
+// It reads. It cannot claim a command and it cannot open anything. If the
+// Node server could claim commands it would race the ESP32 for every press
+// and roughly half of them would vanish, so this endpoint has no path to
+// door_claim at all.
+//
+// Authenticated with DOOR_DASHBOARD_KEY, which is a different secret from
+// the device key so the two rotate independently. Losing this one leaks a
+// list of times and labels, not a way in.
+//
+// The IP column is not in door_recent_events, so it cannot be returned
+// here even by accident. The dashboard is on a living room screen.
+//
+// Deploy:
+//   supabase functions deploy door-events --no-verify-jwt
+//   supabase secrets set DOOR_DASHBOARD_KEY=...
+
+
+const DASHBOARD_KEY = Deno.env.get("DOOR_DASHBOARD_KEY");
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 50;
+
+type EventRow = { id: number; at: string; outcome: string; label: string | null };
+
+Deno.serve(async (req: Request): Promise<Response> => {
+  if (req.method !== "GET" && req.method !== "POST") return json({ events: [] }, 405);
+
+  if (!keyMatches(req.headers.get("x-dashboard-key"), DASHBOARD_KEY)) {
+    return json({ events: [] }, 401);
+  }
+
+  try {
+    const url = new URL(req.url);
+    const asked = parseInt(url.searchParams.get("limit") ?? "", 10);
+    const limit = Number.isFinite(asked) ? Math.min(Math.max(asked, 1), MAX_LIMIT) : DEFAULT_LIMIT;
+
+    const rows = await rpc<EventRow[]>("door_recent_events", { p_limit: limit });
+    return json({ events: rows });
+  } catch (err) {
+    console.error("door-events failed:", err instanceof Error ? err.message : err);
+    return json({ events: [] }, 500);
+  }
+});

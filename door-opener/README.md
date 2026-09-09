@@ -451,23 +451,51 @@ means the paste was truncated.
 
 ### 3. Keys and Edge Functions
 
+Two keys, generated separately so they rotate separately. Each prints once,
+along with the SQL to store its hash. Run that SQL in the SQL editor.
+
 ```bash
 cd door-opener
-
-supabase link --project-ref YOUR-PROJECT-REF
-
-# Two keys, generated separately so they rotate separately. Each prints
-# once, with the SQL to store its hash. Run that SQL in the SQL editor.
 node tools/make-key.js device       # goes on the ESP32
 node tools/make-key.js dashboard    # goes in home-controller/.env
 ```
 
+**No clone handy?** Both keys can be generated in any browser's console,
+with no repo, no Node and no install. Press F12 on any page, paste this,
+and change `'device'` to `'dashboard'` for the second one:
+
+```js
+(async () => {
+  const b = crypto.getRandomValues(new Uint8Array(32));
+  const key = btoa(String.fromCharCode(...b))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
+  const hash = [...new Uint8Array(h)].map(x => x.toString(16).padStart(2, '0')).join('');
+  console.log('KEY (save this, shown once):', key);
+  console.log(`insert into door_keys (name, hash) values ('device', '${hash}')
+    on conflict (name) do update set hash = excluded.hash;`);
+})();
+```
+
+Same 32 bytes of randomness, same base64url, same SHA-256, so it produces
+exactly what `make-key.js` would. Verified over 2000 rounds against the
+CLI. It runs entirely in your browser: the key is never sent anywhere, and
+only its hash goes into the database.
+
+Do not paste a key into a chat, an issue, or anywhere it gets stored. The
+whole point of hashing it is that nothing but the board ever holds the
+plaintext.
+
 Only hashes reach the database, so the plaintext never appears in a query
 log. Keep both somewhere you can paste from; each is needed once more.
 
-The dashboard key is also an Edge Function secret:
+The dashboard key is also an Edge Function secret, which does need the CLI:
 
 ```bash
+cd door-opener
+npx supabase login
+npx supabase link --project-ref YOUR-PROJECT-REF
+
 cp .env.example .env
 $EDITOR .env                       # paste DOOR_DASHBOARD_KEY
 supabase secrets set --env-file .env
@@ -479,6 +507,31 @@ supabase functions deploy door-events --no-verify-jwt
 `--no-verify-jwt` is required on both. A guest at the door has no Supabase
 account and no token: `door-open` authenticates with the pass itself, and
 `door-events` with its own key.
+
+**No clone? Deploy through the dashboard instead.** Each function has a
+committed `bundled.ts` next to its `index.ts`, with `_shared/door.ts`
+inlined into one self-contained file, because the dashboard editor cannot
+express an import reaching outside a function's own folder.
+
+1. **Edge Functions > Deploy a new function > Via editor**
+2. Name it exactly `door-open`, then again for `door-events`. The names are
+   part of the URLs the page and the home controller call.
+3. Replace the sample code with the contents of
+   [`supabase/functions/door-open/bundled.ts`](supabase/functions/door-open/bundled.ts),
+   readable and copyable straight from GitHub, and deploy.
+4. Turn **Verify JWT** off on both. A guest at the door has no Supabase
+   account and no token.
+5. Set `DOOR_DASHBOARD_KEY` under **Project Settings > Edge Functions >
+   Secrets**, which is the same thing `supabase secrets set` does.
+
+Those bundles are generated, never hand edited. Change `index.ts` or
+`_shared/door.ts` and run `npm run bundle`; CI regenerates them and fails
+on any difference, so they cannot drift away from the sources the CLI
+deploys.
+
+The CLI needs no `supabase init` and no `config.toml`. It is happy with
+just the `supabase/functions/` directory that is already in the repo, as
+long as you run it from `door-opener/`.
 
 There is no function for the ESP32. It calls `door_claim()` through
 PostgREST instead, because a 2 second poll is 1.3 million calls a month

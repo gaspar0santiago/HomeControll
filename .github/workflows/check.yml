@@ -102,6 +102,32 @@ jobs:
           # moment a function is added or removed, and the failure lands
           # here rather than anywhere near the change that caused it.
           deno check supabase/functions/_shared/*.ts supabase/functions/*/index.ts
+          # Each bundle separately: with no imports they are scripts, not
+          # modules, so checking them together collides on every name.
+          for b in supabase/functions/*/bundled.ts; do deno check "$b"; done
+
+      - name: The dashboard bundles match their sources
+        working-directory: door-opener
+        run: |
+          # bundled.ts is committed so it can be copied straight from GitHub
+          # by someone deploying through the Supabase dashboard with no
+          # clone. Committed generated files rot silently, which is exactly
+          # how door-poll survived in this workflow after being deleted, so
+          # regenerate and fail on any difference.
+          node tools/bundle-functions.js
+          # status, not diff: diff ignores untracked files, so a bundle that
+          # was never committed would pass a diff check vacuously.
+          DIRTY=$(git status --porcelain -- 'supabase/functions/*/bundled.ts')
+          if [ -n "$DIRTY" ]; then
+            echo "$DIRTY"
+            echo
+            echo "bundled.ts is stale or untracked."
+            echo "Run: node tools/bundle-functions.js  and commit the result."
+            exit 1
+          fi
+          test -s supabase/functions/door-open/bundled.ts
+          test -s supabase/functions/door-events/bundled.ts
+          echo "bundles are current"
 
       - name: The pass CLI refuses a guest pass with no expiry
         working-directory: door-opener

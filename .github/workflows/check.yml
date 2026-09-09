@@ -147,6 +147,48 @@ jobs:
           fi
           echo "CLI refusals OK"
 
+      - name: The browser pass generator agrees with the CLI
+        working-directory: door-opener
+        run: |
+          # tools/make-pass.html reimplements make-pass.js so it can be used
+          # without a clone. If the alphabet or the iteration count drift,
+          # every pass it makes is rejected as "Not recognised" and nothing
+          # anywhere explains why.
+          cat > /tmp/gencheck.js <<'CHECK'
+          const fs = require('fs');
+          const html = fs.readFileSync('tools/make-pass.html', 'utf8');
+          const cli  = fs.readFileSync('tools/make-pass.js', 'utf8');
+
+          function pick(src, name) {
+            const m = src.match(new RegExp(name + '\\s*=\\s*([^;]+);'));
+            if (!m) { console.error('could not find ' + name); process.exit(1); }
+            return m[1].trim();
+          }
+
+          for (const name of ['ALPHABET', 'ITERATIONS']) {
+            const a = pick(cli, name), b = pick(html, name);
+            if (a !== b) {
+              console.error(name + ' differs: make-pass.js has ' + a + ', make-pass.html has ' + b);
+              process.exit(1);
+            }
+            console.log(name + ' agrees: ' + a);
+          }
+
+          const script = html.match(/<script>([\s\S]*?)<\/script>/);
+          if (!script) { console.error('no inline script found'); process.exit(1); }
+          new Function(script[1]);
+          console.log('inline script parses');
+          CHECK
+          node /tmp/gencheck.js
+
+          # It generates passes, so it must never be published. public/ is
+          # Netlify's publish directory.
+          if [ -e public/make-pass.html ]; then
+            echo "make-pass.html is in public/, which Netlify publishes"
+            exit 1
+          fi
+          echo "not in public/, so Netlify never serves it"
+
       - name: The CLI's hash matches what the Edge Function computes
         working-directory: door-opener
         run: |

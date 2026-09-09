@@ -460,6 +460,29 @@ node tools/make-key.js device       # goes on the ESP32
 node tools/make-key.js dashboard    # goes in home-controller/.env
 ```
 
+### tools/make-pass.html
+
+A single file that does all of this with a form instead of SQL by hand:
+generate a pass, set a guest window from a preset, and produce the SQL for
+turning a pass off, back on, extending it, changing its use limit or
+deleting it.
+
+Open it from disk. It is deliberately **not** in `public/`, so Netlify
+never publishes it, and CI fails if anyone moves it there. It makes no
+network calls, holds no keys and stores nothing: the pass is generated and
+hashed in the page, and only the hash reaches the SQL you copy out. The
+service role key stays in the Edge Functions where it belongs, which is
+also why this cannot talk to the database itself and hands you statements
+to paste instead.
+
+With no clone, open the file on GitHub, click **Raw**, save the page, and
+open it. One download, and it keeps working offline forever. Keeping it on
+the kiosk PC next to `home-controller/` is a reasonable home for it.
+
+CI checks its alphabet and iteration count against `make-pass.js`, because
+if those drift every pass it makes is rejected as "Not recognised" with
+nothing to explain why.
+
 **No clone handy?** Both keys can be generated in any browser's console,
 with no repo, no Node and no install. Press F12 on any page, paste this,
 and change `'device'` to `'dashboard'` for the second one:

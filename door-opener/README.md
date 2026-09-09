@@ -504,11 +504,30 @@ request.
 Edit [`public/config.js`](public/config.js) and put your project ref in
 `openUrl`. That is the only edit the page needs.
 
-In Netlify, create a site from this repo and set **Base directory** to
-`door-opener`. It reads `netlify.toml` from there and publishes `public/`.
-There is no build step.
+**Connect Netlify to the repo rather than deploying by hand.** The page
+holds nothing secret: `config.js` has a public function URL and that is
+all, every decision is made server side, and the worst a bad deploy can do
+is break the page. The door keeps working, because the ESP32 and the
+intercom's own button do not depend on it. Against that, continuous
+deployment gets you versioned deploys, one click rollback, and no way to
+accidentally publish a stale local copy.
 
-Or by hand:
+Settings that matter when you create the site:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Base directory | `door-opener` | **Get this right or you get no security headers.** Netlify looks for `netlify.toml` in the base directory. Left at the repo root it finds nothing, and the CSP, HSTS and the rest silently do not exist |
+| Build command | empty | There is no build step and there should not be one |
+| Publish directory | `public` | Relative to the base directory |
+| Branch to deploy | `main` | Not a feature branch |
+| Deploy previews | off | There is no review workflow for this page, and fewer public copies of your door page is better hygiene |
+
+**Name the site something that does not identify the building.** The URL is
+not a secret and it is not what protects the door, the pass is. But a name
+that says which address it opens invites attempts you would otherwise never
+see, and every one of those is a row in your lockout table.
+
+Deploying by hand works too, and reads the same `netlify.toml`:
 
 ```bash
 cd door-opener
@@ -520,7 +539,9 @@ Then tighten two things now that you know your URLs:
 - `netlify.toml`: narrow `connect-src` from `https://*.supabase.co` to your
   own project.
 - `.env`: set `DOOR_ALLOWED_ORIGIN` to the Netlify origin and re-run
-  `supabase secrets set --env-file .env`.
+  `supabase secrets set --env-file .env`. Once that is set, any other
+  origin is refused, which includes Netlify deploy previews. That is the
+  behaviour you want and another reason to leave previews off.
 
 ### 8. The kiosk panel (optional)
 

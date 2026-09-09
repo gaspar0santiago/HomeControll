@@ -46,8 +46,9 @@ var releaseTimer = null;
 // ── Copy ──────────────────────────────────────────────────────
 // Plain language, and every one of them says what to do next. Nobody
 // standing at a door at night wants a status code.
-function failureText(data) {
-  var reason = data && data.reason;
+function failureText(result) {
+  var data = (result && result.data) || {};
+  var reason = data.reason;
 
   if (reason === 'expired') {
     return 'That pass has expired' + since(data.valid_until) + '. Ask for a new one.';
@@ -73,8 +74,28 @@ function failureText(data) {
   if (reason === 'error') {
     return 'Something went wrong at our end. ' + FALLBACK;
   }
-  // Everything unmatched reads the same as a pass that does not exist. The
-  // page has no way to tell those apart, and neither should anyone else.
+  // No reason the server recognises. If the status says the request never
+  // got as far as checking a pass, say that instead of blaming the pass:
+  // reporting a gateway rejection as a wrong pass sends you looking in
+  // entirely the wrong place, which is exactly what it did once.
+  // A body that did not parse tells us nothing about the pass either way.
+  if (result && result.parsed === false) {
+    return 'The door service answered unexpectedly (error ' + result.status + '). ' + FALLBACK;
+  }
+
+  if (result && result.httpOk === false) {
+    if (result.status === 401 || result.status === 403) {
+      return 'The door service refused the request before it looked at your pass. '
+        + 'This is a setup problem, not your pass. ' + FALLBACK;
+    }
+    if (result.status >= 500) {
+      return 'The door service is having trouble. ' + FALLBACK;
+    }
+    return 'The door service answered unexpectedly (error ' + result.status + '). ' + FALLBACK;
+  }
+
+  // A 200 with no reason we know, or reason 'unknown': as far as anyone can
+  // tell from outside, the pass simply does not exist.
   return 'Not recognised. Check the characters and try again.';
 }
 
@@ -252,14 +273,26 @@ function submit() {
     signal: controller.signal
   })
     .then(function (response) {
-      return response.json().catch(function () { return { ok: false, reason: 'error' }; });
+      // The HTTP status is carried alongside the body on purpose. A request
+      // rejected before it reaches the door logic, by the gateway or by a
+      // misconfiguration, must not be reported as a verdict about the pass.
+      return response.json()
+        .catch(function () { return null; })
+        .then(function (data) {
+          return {
+            status: response.status,
+            httpOk: response.ok,
+            parsed: data !== null && typeof data === 'object',
+            data: data || {}
+          };
+        });
     })
-    .then(function (data) {
-      if (data && data.ok) succeed();
-      else refuse(data);
+    .then(function (result) {
+      if (result.httpOk && result.data.ok) succeed();
+      else refuse(result);
     })
     .catch(function () {
-      refuse({ reason: 'network' });
+      refuse({ httpOk: false, status: 0, parsed: true, data: { reason: 'network' } });
     })
     .then(function () {
       clearTimeout(timeout);

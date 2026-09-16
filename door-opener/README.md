@@ -130,7 +130,18 @@ the two cannot double-flash.
 
 Egress is not a constraint either: about 1.1 GB against a 5 GB allowance.
 Nor is idling, since providers that pause inactive free projects will never
-pause a loop that runs every 2 seconds.
+pause a loop that runs every 2 seconds. The one way that bites is a long
+trip with the board unplugged: seven days of real silence and Supabase
+pauses the project, which is one click in the dashboard to undo, but it has
+to be done before the page opens anything again. The intercom button in the
+hallway is unaffected, as it is by everything in here.
+
+The free plan also caps how many active projects an organisation may have
+(two, at the time of writing). If you already have two, pause one or put
+this project in an organisation of its own. Nothing else in this design has
+a paid dependency: no custom domain, no read replica, no point in time
+recovery. Losing the database costs you `schema.sql`, which is in this
+repo, and the passes, which you reissue from `tools/make-pass.html`.
 
 ### Why Supabase and not the database your page host offers
 
@@ -956,9 +967,10 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
   within 2 seconds, and the success screen counts down a window in which to
   push. If the board is offline the page still says the door opened.
 - **Both poll loops run all month whether anyone uses the door or not.** At
-  the shipped intervals that is about 2.16 million Edge Function
-  invocations a month against a Supabase free tier of 500,000. See **What
-  the polling costs** above for the levers and the two ways out.
+  the shipped intervals that is 1,296,000 REST calls, which are unlimited,
+  and 43,200 Edge Function invocations against a free tier of 500,000. It
+  fits, and it fits with room, but the idle cost is not nothing: see **What
+  the polling costs** above for the levers.
 - **Response time grows with the number of passes.** Every pass is hashed on
   every attempt, which is what keeps the timing flat. Roughly 55ms per pass,
   so 20 passes is about 1.1 seconds. Past 40 or so, prune long dead ones.

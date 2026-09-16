@@ -55,7 +55,11 @@ static const uint32_t POLL_INTERVAL_MS = 2000;
 static const uint32_t PULSE_MS = 1000;
 
 // Back off after repeated failures instead of hammering a dead network.
-static const uint32_t POLL_BACKOFF_MAX_MS = 30000;
+// Capped at half the 30 second command TTL, so that however deep the
+// backoff has gone by the time the network comes back, a command queued
+// during the outage still gets at least one poll before it expires. At the
+// old 30s cap those two numbers were equal and it could miss by a hair.
+static const uint32_t POLL_BACKOFF_MAX_MS = 15000;
 
 static const uint32_t HTTP_TIMEOUT_MS = 8000;
 static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 20000;

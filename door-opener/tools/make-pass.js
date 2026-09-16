@@ -33,6 +33,31 @@ const ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 // IPs, so this is far past the point where guessing is the weak link.
 const DEFAULT_LENGTH = 8;
 
+// A chosen pass is a different animal from a generated one. It is a word
+// somebody picked, so it is short, guessable and memorable by design, and
+// none of those can be argued out of it.
+//
+// What makes it safe is the window. The global limiter allows about 120
+// wrong tries an hour across everyone, so a pass that dies at 4am only
+// ever faces the tries that fit before then. That turns "is this pass
+// strong enough" into one number: the tries the window admits, over the
+// combinations the pass has. Refuse above MAX_GUESS_ODDS and both halves
+// take care of themselves, because a longer pass simply earns a longer
+// window. DIA gets about fourteen hours. A passphrase gets centuries.
+const MIN_CHOSEN = 3;
+const GUESSES_PER_HOUR = 120;
+const MAX_GUESS_ODDS = 0.10;
+
+// A pass with no end time is not guessed in infinite time, it is guessed
+// in however long the space takes to grind through, so scoring it against
+// an infinite window would refuse every permanent pass however strong.
+// Ten years is the horizon a resident key is measured against instead.
+const NO_EXPIRY_HOURS = 24 * 365 * 10;
+
+// Matches MAX_PASS_LENGTH in the Edge Function. Anything longer is
+// rejected there before it is ever hashed, so it could never open a door.
+const MAX_CHOSEN = 64;
+
 function usage(message) {
   if (message) console.error('\n  ' + message);
   console.error(`
@@ -41,12 +66,19 @@ function usage(message) {
     node tools/make-pass.js guest    --label "<name>" --until "<when>"
                                      [--from "<when>"] [--max-uses N] [--length 8]
 
+  Choose the pass yourself, for a party people have to remember:
+    node tools/make-pass.js guest --label "Sat party" --pass DIA \
+         --from "2026-09-12T20:00" --until "2026-09-13T04:00"
+
   Options:
     --label      What this pass is called. Shows on the kiosk door panel.
+    --pass       Use this exact pass instead of a random one. Case and
+                 punctuation are ignored, ${MIN_CHOSEN}-${MAX_CHOSEN} characters. A short
+                 one needs a short --until: it will tell you how short.
     --from       When it starts working. Defaults to now.
     --until      When it stops working. Required for a guest pass.
     --max-uses   Cap the number of opens. Omit for unlimited.
-    --length     Characters in the pass. Default ${DEFAULT_LENGTH}.
+    --length     Characters in the pass. Default ${DEFAULT_LENGTH}. Not with --pass.
 
   Times are read in this machine's local timezone. Both
   "2026-09-12T20:00" and "2026-09-12 20:00" work.
@@ -55,12 +87,13 @@ function usage(message) {
 }
 
 function parseArgs(argv) {
-  const out = { kind: argv[0], label: null, from: null, until: null, maxUses: null, length: DEFAULT_LENGTH };
+  const out = { kind: argv[0], label: null, pass: null, from: null, until: null, maxUses: null, length: null };
   for (let i = 1; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
     switch (flag) {
       case '--label':    out.label = value; i++; break;
+      case '--pass':     out.pass = value; i++; break;
       case '--from':     out.from = value; i++; break;
       case '--until':    out.until = value; i++; break;
       case '--max-uses': out.maxUses = value; i++; break;
@@ -95,6 +128,60 @@ function normalise(pass) {
   return pass.toUpperCase().replace(/[^0-9A-Z]/g, '');
 }
 
+/**
+ * What a guesser actually faces, assuming the worst about them: that they
+ * know the length, and that a chosen pass means letters rather than the
+ * full 36 character keypad.
+ */
+function combinations(pass) {
+  // Assume the worst about the guesser: that they know the length, and
+  // that a pass somebody chose is a word, so 26 per position and not 36.
+  return Math.pow(/[0-9]/.test(pass) ? 36 : 26, pass.length);
+}
+
+function hoursUntil(until) {
+  return until ? (until.getTime() - Date.now()) / 3600000 : Infinity;
+}
+
+/** Odds the window lets a guesser through. 1 means near certain. */
+function guessOdds(pass, until) {
+  const hours = Math.min(hoursUntil(until), NO_EXPIRY_HOURS);
+  if (hours <= 0) return 0;
+  return Math.min(1, (hours * GUESSES_PER_HOUR) / combinations(pass));
+}
+
+/** The longest window this pass can carry and stay under the threshold. */
+function affordableHours(pass) {
+  return (combinations(pass) * MAX_GUESS_ODDS) / GUESSES_PER_HOUR;
+}
+
+function describeHours(hours) {
+  if (hours < 48) return `${hours.toFixed(1)} hours`;
+  if (hours < 24 * 730) return `${Math.round(hours / 24).toLocaleString('en-GB')} days`;
+  return `${Math.round(hours / 24 / 365).toLocaleString('en-GB')} years`;
+}
+
+function strengthLine(pass, until) {
+  const combos = combinations(pass).toLocaleString('en-GB');
+  const hours = hoursUntil(until);
+
+  if (!Number.isFinite(hours)) {
+    const years = combinations(pass) / GUESSES_PER_HOUR / 24 / 365;
+    return `${combos} combinations and no end time, so it stands on its length alone: `
+      + `about ${describeHours(combinations(pass) / GUESSES_PER_HOUR)} of sustained guessing `
+      + `to exhaust${years > 1000 ? ', which is as permanent as anything here gets' : ''}.`;
+  }
+  if (hours <= 0) return `${combos} combinations, and a window that has already closed.`;
+
+  const odds = guessOdds(pass, until);
+  const tries = Math.round(hours * GUESSES_PER_HOUR).toLocaleString('en-GB');
+  const chance = odds >= 1 ? 'near certain'
+    : odds < 0.001 ? 'under 0.1%'
+    : 'about ' + (odds * 100).toFixed(1) + '%';
+  return `${combos} combinations, and the limiter allows about ${tries} tries `
+    + `before it expires (${chance}).`;
+}
+
 /** Groups of four, so it can be read aloud without losing your place. */
 function pretty(pass) {
   return (pass.match(/.{1,4}/g) || [pass]).join('-');
@@ -122,9 +209,29 @@ function main() {
     usage('--label is required. It is what shows on the kiosk door panel.');
   }
 
-  const length = parseInt(args.length, 10);
-  if (!Number.isInteger(length) || length < 6 || length > 32) {
-    usage('--length must be a whole number between 6 and 32.');
+  // Both given means one is being ignored, and quietly ignoring either is
+  // how you hand out a pass that is not the one you thought you made.
+  if (args.pass !== null && args.length !== null) {
+    usage('--pass and --length cannot both be given. A pass you chose is already the length it is.');
+  }
+
+  let length = DEFAULT_LENGTH;
+  if (args.pass === null) {
+    length = parseInt(args.length === null ? DEFAULT_LENGTH : args.length, 10);
+    if (!Number.isInteger(length) || length < 6 || length > 32) {
+      usage('--length must be a whole number between 6 and 32.');
+    }
+  }
+
+  let chosen = null;
+  if (args.pass !== null) {
+    chosen = normalise(args.pass);
+    if (chosen.length < MIN_CHOSEN || chosen.length > MAX_CHOSEN) {
+      usage(
+        `--pass must be ${MIN_CHOSEN} to ${MAX_CHOSEN} characters once case and punctuation are\n` +
+        `  stripped. "${args.pass}" comes out as "${chosen}", which is ${chosen.length}.`
+      );
+    }
   }
 
   // The one refusal that matters. A guest pass with no end date is a
@@ -148,13 +255,30 @@ function main() {
     usage('--from is not before --until.');
   }
 
+  // The second refusal that matters, and the reason a three letter pass is
+  // allowed at all. Length is not what protects a word somebody picked;
+  // the window is. So this does not ask how long the pass is, it asks what
+  // the window it was given would let through, which is the question that
+  // actually decides whether the pass holds.
+  if (chosen && guessOdds(chosen, until) > MAX_GUESS_ODDS) {
+    const fits = describeHours(affordableHours(chosen));
+    usage(
+      `"${chosen}" cannot carry ${until ? 'a window that long' : 'a pass with no end time'}.\n\n` +
+      `  ${strengthLine(chosen, until)}\n\n` +
+      `  At ${chosen.length} characters it can cover about ${fits} before guessing it\n` +
+      `  becomes likelier than ${Math.round(MAX_GUESS_ODDS * 100)}%. Either ${until ? 'shorten' : 'set'} the window with\n` +
+      '  --until, or add a character: every one you add multiplies what it can\n' +
+      '  carry by 26.'
+    );
+  }
+
   let maxUses = null;
   if (args.maxUses !== null) {
     maxUses = parseInt(args.maxUses, 10);
     if (!Number.isInteger(maxUses) || maxUses < 1) usage('--max-uses must be 1 or more.');
   }
 
-  const pass = generate(length);
+  const pass = chosen === null ? generate(length) : chosen;
   const salt = crypto.randomBytes(SALT_BYTES);
   const hash = crypto.pbkdf2Sync(normalise(pass), salt, ITERATIONS, KEY_BYTES, 'sha256');
 
@@ -176,15 +300,19 @@ function main() {
 
   ${'='.repeat(58)}
 
-  This is the only time it is shown. It is not stored anywhere in
-  plaintext and cannot be recovered. Lose it and generate another.
+  ${chosen === null
+    ? `This is the only time it is shown. It is not stored anywhere in
+  plaintext and cannot be recovered. Lose it and generate another.`
+    : `Only the hash is stored, so nothing here can tell you this pass
+  later. You chose it, so write it down where you keep the others.`}
 
   Dashes and spaces are ignored on entry, so "${pretty(pass)}"
   and "${pass}" both work.
 
   Starts:   ${from ? localAndUtc(from) : 'immediately'}
   Expires:  ${until ? localAndUtc(until) : 'never'}
-  Uses:     ${maxUses === null ? 'unlimited' : maxUses}
+  Uses:     ${maxUses === null ? 'unlimited' : maxUses}${chosen === null ? '' : `
+  Guessing: ${strengthLine(pass, until)}`}
 
   Run this in the Supabase SQL editor:
 

@@ -7,9 +7,19 @@
 // back from the Edge Function. Reading this file tells an attacker the
 // shape of the API and nothing else.
 
-// Same alphabet as tools/make-pass.js. No 0, O, 1 or I, so there is no
-// character on this keypad that can be confused with another.
-var ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+// Every character that survives normalise(), so anything that can be a
+// pass can be tapped in here.
+//
+// This is deliberately wider than the generator's alphabet in
+// tools/make-pass.js, which leaves out 0, O, 1 and I. That exclusion is
+// about *random* passes: eight random characters read off a screen in a
+// dark hallway, where O against 0 is a failed attempt and a second trip
+// down the stairs. A pass somebody chose is not read that way. You know
+// DIA is not D1A, because you knew the word before you saw it.
+//
+// So the generator keeps its 32 unambiguous characters and the keypad
+// carries all 36. Nothing that can be stored is unenterable.
+var KEYPAD = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 var COLUMNS = 6;
 var MAX_LENGTH = 64;
 
@@ -180,12 +190,12 @@ function buzz(pattern) {
 }
 
 // ── Keypad ────────────────────────────────────────────────────
-// Built from ALPHABET rather than written out in the HTML, so the keypad
-// and the generator cannot drift apart.
+// Built from KEYPAD rather than written out in the HTML, so the keys and
+// the set of characters the page accepts cannot drift apart.
 function buildKeypad() {
   var frag = document.createDocumentFragment();
 
-  ALPHABET.split('').forEach(function (character) {
+  KEYPAD.split('').forEach(function (character) {
     var key = document.createElement('button');
     key.type = 'button';
     key.className = 'key';
@@ -207,11 +217,12 @@ function buildKeypad() {
 
   el.keys.appendChild(frag);
 
-  // ALPHABET is 32 characters and the two wide keys take two columns each,
-  // so the grid fills exactly. If someone changes the alphabet, say so
-  // rather than shipping a ragged last row.
-  if ((ALPHABET.length + 4) % COLUMNS !== 0) {
-    console.warn('Keypad does not fill its grid: ' + ALPHABET.length + ' characters over ' + COLUMNS + ' columns');
+  // KEYPAD is 36 characters and the two wide keys take three columns each,
+  // so the grid fills exactly: six rows of characters, then one row that is
+  // the two wide keys. If someone changes the set, say so rather than
+  // shipping a ragged last row.
+  if ((KEYPAD.length + 6) % COLUMNS !== 0) {
+    console.warn('Keypad does not fill its grid: ' + KEYPAD.length + ' characters over ' + COLUMNS + ' columns');
   }
 }
 
@@ -371,7 +382,7 @@ document.addEventListener('keydown', function (event) {
 
   if (event.key.length === 1) {
     var character = event.key.toUpperCase();
-    if (ALPHABET.indexOf(character) !== -1) {
+    if (KEYPAD.indexOf(character) !== -1) {
       event.preventDefault();
       append(character);
     }

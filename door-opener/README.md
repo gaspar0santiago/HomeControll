@@ -1064,6 +1064,7 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
 | --- | --- |
 | `public/index.html`, `door.css`, `door.js` | The page. Split into three files because the CSP has `script-src 'self'` and a CSP worth having cannot allow inline script |
 | `public/config.js` | The one file to edit: your `door-open` URL |
+| `public/favicon.svg`, `favicon.ico`, `apple-touch-icon.png` | A door swinging open, in the button's lime. The `.ico` is for browsers that ask for `/favicon.ico` unprompted; the touch icon is what iOS uses when this page is added to a home screen, instead of a screenshot of the keypad |
 | `netlify.toml` | Publish directory and the security headers |
 | `supabase/schema.sql` | Tables, RLS, the claim and consume functions, the status view |
 | `supabase/functions/door-open/` | Public. Checks the pass, queues a command |

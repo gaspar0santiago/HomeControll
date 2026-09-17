@@ -7,8 +7,9 @@
 #   cd door-opener
 #   netlify deploy --prod
 #
-# There is no build step. The page is three static files and it stays that
-# way on purpose: this has to keep working when nothing else does.
+# There is no build step. The page is three static files, plus three icons
+# that are never parsed, and it stays that way on purpose: this has to keep
+# working when nothing else does.
 
 [build]
   publish = "public"

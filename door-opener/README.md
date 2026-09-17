@@ -130,7 +130,18 @@ the two cannot double-flash.
 
 Egress is not a constraint either: about 1.1 GB against a 5 GB allowance.
 Nor is idling, since providers that pause inactive free projects will never
-pause a loop that runs every 2 seconds.
+pause a loop that runs every 2 seconds. The one way that bites is a long
+trip with the board unplugged: seven days of real silence and Supabase
+pauses the project, which is one click in the dashboard to undo, but it has
+to be done before the page opens anything again. The intercom button in the
+hallway is unaffected, as it is by everything in here.
+
+The free plan also caps how many active projects an organisation may have
+(two, at the time of writing). If you already have two, pause one or put
+this project in an organisation of its own. Nothing else in this design has
+a paid dependency: no custom domain, no read replica, no point in time
+recovery. Losing the database costs you `schema.sql`, which is in this
+repo, and the passes, which you reissue from `tools/make-pass.html`.
 
 ### Why Supabase and not the database your page host offers
 
@@ -491,9 +502,10 @@ node tools/make-key.js dashboard    # goes in home-controller/.env
 ### tools/make-pass.html
 
 A single file that does all of this with a form instead of SQL by hand:
-generate a pass, set a guest window from a preset, and produce the SQL for
-turning a pass off, back on, extending it, changing its use limit or
-deleting it.
+generate a pass or choose your own, set a guest window from a preset, and
+produce the SQL for turning a pass off, back on, extending it, changing its
+use limit or deleting it. See **Choosing the pass yourself** below for what
+it will and will not accept.
 
 Open it from disk. It is deliberately **not** in `public/`, so Netlify
 never publishes it, and CI fails if anyone moves it there. It makes no
@@ -876,6 +888,60 @@ and by a CHECK constraint in the schema, so writing the INSERT by hand does
 not get around it. A shared pass with no end date is a permanent key sitting in a group
 chat, and group chats outlive parties, flatmates and phones.
 
+### Choosing the pass yourself
+
+A generated pass is eight random characters, which nobody shouts across a
+room. For a party you want a word.
+
+```bash
+node tools/make-pass.js guest --label "Sat party" --pass DIA \
+  --from "2026-09-12T20:00" --until "2026-09-13T04:00"
+```
+
+The generator page has the same thing under **Choose my own**, with the
+numbers live as you type.
+
+Case, spaces and dashes are stripped before hashing, exactly as the door
+page strips them, so `DIA`, `dia` and `d-i-a` are one pass. The keypad
+carries all 36 characters, so anything you can choose can be tapped in.
+The *generator* still avoids 0, O, 1 and I when it picks at random, because
+a random string gets misread in a dark hallway in a way a word you already
+know does not.
+
+What decides whether a chosen pass is allowed is not its length. It is what
+its window lets through:
+
+> The global limiter allows about 30 wrong tries every 15 minutes across
+> everyone, so roughly 120 an hour however many phones are pointed at the
+> door. A pass that dies at 4am only ever faces the tries that fit before
+> then.
+
+So the tools compute one number, the tries the window admits over the
+combinations the pass has, and refuse anything over 10%. That single rule
+covers every case, because a longer pass simply earns a longer window:
+
+| Pass | Combinations | Longest window it can carry |
+| --- | --- | --- |
+| `DIA` | 17,576 | about 14 hours |
+| `NEMA` | 456,976 | about 16 days |
+| `ELEPHANT` | 2 × 10¹¹ | longer than the flat will exist |
+
+`DIA` across the eight hours in the example above is about a 5% chance of
+being guessed, and only by someone hammering your door for the whole night,
+which trips the limiter for your actual guests and fills the log while it
+happens. Shorten the window and it drops fast: a 3am finish from a 10pm
+start is nearer 1%. `DIA` left on for a month is refused outright, and the
+tool says how short the window would have to be rather than just saying no.
+
+Unlike the guest-expiry rule, this one lives in the two generators and not
+in the schema, so an INSERT written by hand can still store a weak pass.
+That is the same trust the SQL editor already has, and it is why the door
+page never sees any of this: the limiter and the lockout are what actually
+hold, and they are server side.
+
+Every chosen pass is still a pass like any other: revoke it, cap its uses,
+or give it a `--from` so it does not work until the party starts.
+
 ### What is live right now
 
 ```sql
@@ -956,9 +1022,10 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
   within 2 seconds, and the success screen counts down a window in which to
   push. If the board is offline the page still says the door opened.
 - **Both poll loops run all month whether anyone uses the door or not.** At
-  the shipped intervals that is about 2.16 million Edge Function
-  invocations a month against a Supabase free tier of 500,000. See **What
-  the polling costs** above for the levers and the two ways out.
+  the shipped intervals that is 1,296,000 REST calls, which are unlimited,
+  and 43,200 Edge Function invocations against a free tier of 500,000. It
+  fits, and it fits with room, but the idle cost is not nothing: see **What
+  the polling costs** above for the levers.
 - **Response time grows with the number of passes.** Every pass is hashed on
   every attempt, which is what keeps the timing flat. Roughly 55ms per pass,
   so 20 passes is about 1.1 seconds. Past 40 or so, prune long dead ones.

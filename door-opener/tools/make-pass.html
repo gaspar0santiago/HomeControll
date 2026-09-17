@@ -274,6 +274,22 @@ from door_pass_status order by state, label;</textarea>
 // Must match tools/make-pass.js and supabase/functions/_shared/door.ts.
 // CI fails if these drift.
 var ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+// What the door page's keypad can actually type, which is wider than the
+// generator's set above: a chosen word is not misread the way a random
+// string is, so DIA does not need an I-shaped hole in the keypad.
+var KEYPAD = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+// The global limiter is what really caps guessing: 30 wrong tries per 15
+// minutes across everyone, so roughly 120 an hour however many phones are
+// pointed at the door.
+var GUESSES_PER_HOUR = 120;
+// Floor for a chosen pass, and the odds above which its window is refused.
+// Same rule and same numbers as tools/make-pass.js: what decides whether a
+// chosen pass holds is not its length but what its window lets through.
+var MIN_CUSTOM = 3;
+var MAX_GUESS_ODDS = 0.10;
+// A permanent pass is measured against ten years of sustained guessing
+// rather than an infinite window, which would refuse every one of them.
+var NO_EXPIRY_HOURS = 24 * 365 * 10;
 var ITERATIONS = 120000;
 var SALT_BYTES = 16;
 var KEY_BITS = 256;
@@ -291,6 +307,52 @@ function hex(bytes) {
 }
 function sqlText(v) { return "'" + String(v).replace(/'/g, "''") + "'"; }
 function pretty(p) { return (p.match(/.{1,4}/g) || [p]).join('-'); }
+
+function big(n) { return Math.round(n).toLocaleString('en-GB'); }
+
+// Assume the worst about the guesser: that they know the length, and that
+// a pass somebody chose is a word, so 26 per position and not 36.
+function combinations(pass) {
+  return Math.pow(/[0-9]/.test(pass) ? 36 : 26, pass.length);
+}
+function hoursUntil(until) {
+  return until ? (until.getTime() - Date.now()) / 3600000 : Infinity;
+}
+function guessOdds(pass, until) {
+  var hours = Math.min(hoursUntil(until), NO_EXPIRY_HOURS);
+  if (hours <= 0) return 0;
+  return Math.min(1, (hours * GUESSES_PER_HOUR) / combinations(pass));
+}
+function affordableHours(pass) {
+  return (combinations(pass) * MAX_GUESS_ODDS) / GUESSES_PER_HOUR;
+}
+function describeHours(h) {
+  if (h < 48) return h.toFixed(1) + ' hours';
+  if (h < 24 * 730) return big(h / 24) + ' days';
+  return big(h / 24 / 365) + ' years';
+}
+
+// The honest headline: length is not what protects a chosen pass. The end
+// time is, because the limiter only ever lets through the tries that fit
+// inside it.
+function strengthNote(pass, until) {
+  if (!pass.length) return '';
+  var combos = big(combinations(pass));
+  var hours = hoursUntil(until);
+
+  if (!isFinite(hours)) {
+    return combos + ' combinations and no end time, so it stands on its length alone: about '
+      + describeHours(combinations(pass) / GUESSES_PER_HOUR) + ' of sustained guessing to exhaust.';
+  }
+  if (hours <= 0) return combos + ' combinations, and a window that has already closed.';
+
+  var odds = guessOdds(pass, until);
+  return combos + ' combinations, and the limiter allows about ' + big(hours * GUESSES_PER_HOUR)
+    + ' tries before this expires: '
+    + (odds >= 1 ? 'near certain' : odds < 0.001 ? 'under a 0.1%' : 'about a ' + (odds * 100).toFixed(1) + '%')
+    + ' chance of being found inside its window. Anyone really trying also trips the '
+    + 'limiter for your guests, which you would notice.';
+}
 
 function localToIso(value) {
   if (!value) return null;
@@ -352,23 +414,30 @@ el('length').addEventListener('input', function () {
 });
 
 // ── custom pass warnings ──────────────────────────────────────
-el('custom').addEventListener('input', function () {
+// Depends on the end time as well as the pass, so it is a named function
+// and every control that can move either one calls it. A strength note
+// that still describes the window you just replaced is worse than none.
+function refreshCustomWarn() {
   var p = normalise(el('custom').value);
   var bad = [];
   for (var i = 0; i < p.length; i++) {
-    if (ALPHABET.indexOf(p[i]) === -1 && bad.indexOf(p[i]) === -1) bad.push(p[i]);
+    if (KEYPAD.indexOf(p[i]) === -1 && bad.indexOf(p[i]) === -1) bad.push(p[i]);
   }
   var msgs = [];
+  // The keypad carries every character normalise() can return, so this
+  // cannot fire today. It stays because it would start firing again the
+  // moment somebody narrows KEYPAD, which is exactly when you want to know.
   if (bad.length) {
-    msgs.push('The keypad has no ' + bad.join(', ') + '. Those four characters were left out '
-      + 'so nothing is ambiguous at a dark door, so this pass can only be entered '
+    msgs.push('The keypad has no ' + bad.join(', ') + ', so this pass could only be entered '
       + 'using the page’s "Type instead" mode.');
   }
-  if (p.length > 0 && p.length < 8) {
-    msgs.push('Short passes are guessable, and the lockout only slows that down. Eight or more is better.');
-  }
+  if (p.length) msgs.push(strengthNote(p, localToIso(el('until').value)));
   el('custom-warn').hidden = msgs.length === 0;
   el('custom-warn').innerHTML = msgs.join('<br><br>');
+}
+
+el('custom').addEventListener('input', function () {
+  refreshCustomWarn();
   validate();
 });
 
@@ -396,11 +465,15 @@ el('fs-window').addEventListener('click', function (e) {
 
   el('from').value = b.dataset.preset === 'saturday' ? toInputValue(from) : '';
   el('until').value = toInputValue(until);
+  refreshCustomWarn();
   validate();
 });
 
 ['label', 'from', 'until', 'uses'].forEach(function (id) {
-  el(id).addEventListener('input', validate);
+  el(id).addEventListener('input', function () {
+    if (id === 'until') refreshCustomWarn();
+    validate();
+  });
 });
 
 // ── validation ────────────────────────────────────────────────
@@ -408,12 +481,26 @@ function problems() {
   var out = [];
   if (!el('label').value.trim()) out.push('Give it a label, so you know what it was for later.');
 
-  if (state.source === 'custom' && normalise(el('custom').value).length < 4) {
-    out.push('Type the pass you want, at least 4 characters.');
+  var custom = normalise(el('custom').value);
+  if (state.source === 'custom' && custom.length < MIN_CUSTOM) {
+    out.push('Type the pass you want, at least ' + MIN_CUSTOM + ' characters.');
   }
 
   var until = localToIso(el('until').value);
   var from = localToIso(el('from').value);
+
+  // Not "is this pass long enough" but "does its window let too much
+  // through", which is the question that actually decides it. A longer
+  // pass earns a longer window on the same arithmetic, so one rule covers
+  // DIA for a party night and a passphrase for a year.
+  if (state.source === 'custom' && custom.length >= MIN_CUSTOM
+      && guessOdds(custom, until) > MAX_GUESS_ODDS) {
+    out.push('"' + custom + '" cannot carry '
+      + (until ? 'a window that long' : 'a pass with no end time') + ': it can cover about '
+      + describeHours(affordableHours(custom)) + ' before guessing it becomes likelier than '
+      + Math.round(MAX_GUESS_ODDS * 100) + '%. ' + (until ? 'Shorten the end time' : 'Set an end time')
+      + ', or add a character — each one multiplies what it can carry by 26.');
+  }
 
   if (state.kind === 'guest' && !until) {
     out.push('A guest pass must have an end time. Use a quick set button, or pick one.');
@@ -490,7 +577,7 @@ el('go').addEventListener('click', function () {
 
       var bad = [];
       for (var j = 0; j < pass.length; j++) {
-        if (ALPHABET.indexOf(pass[j]) === -1 && bad.indexOf(pass[j]) === -1) bad.push(pass[j]);
+        if (KEYPAD.indexOf(pass[j]) === -1 && bad.indexOf(pass[j]) === -1) bad.push(pass[j]);
       }
       el('out-keypad').hidden = bad.length === 0;
       el('out-keypad').textContent = bad.length

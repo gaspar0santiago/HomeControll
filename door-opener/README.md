@@ -504,7 +504,7 @@ node tools/make-key.js dashboard    # goes in home-controller/.env
 A single file that does all of this with a form instead of SQL by hand:
 generate a pass or choose your own, set a guest window from a preset, and
 produce the SQL for turning a pass off, back on, extending it, changing its
-use limit or deleting it. See **Choosing the pass yourself** below for what
+use limit or deleting it — one at a time, or every pass at once. See **Choosing the pass yourself** below for what
 it will and will not accept.
 
 Open it from disk. It is deliberately **not** in `public/`, so Netlify
@@ -524,8 +524,10 @@ if those drift every pass it makes is rejected as "Not recognised" with
 nothing to explain why.
 
 **No clone handy?** Both keys can be generated in any browser's console,
-with no repo, no Node and no install. Press F12 on any page, paste this,
-and change `'device'` to `'dashboard'` for the second one:
+with no repo, no Node and no install. Press F12 on any `https://` page and
+paste this. It has to be an `https://` page: `crypto.subtle` does not exist
+outside a secure context, and on a plain `http://` one this fails with a
+confusing `Cannot read properties of undefined`.
 
 ```js
 (async () => {
@@ -544,6 +546,14 @@ Same 32 bytes of randomness, same base64url, same SHA-256, so it produces
 exactly what `make-key.js` would. Verified over 2000 rounds against the
 CLI. It runs entirely in your browser: the key is never sent anywhere, and
 only its hash goes into the database.
+
+**That is the device key.** Run it again for the dashboard key, but take
+only the `KEY` line and ignore the SQL it prints. The dashboard key is not
+hashed and has no row: `door-events` compares it as it is against its own
+Edge Function secret, so a `door_keys` row for it would sit there unread,
+inviting the question of why it exists. Set it under **Project Settings >
+Edge Functions > Secrets** instead, and put the same value in
+`home-controller/.env`.
 
 Do not paste a key into a chat, an issue, or anywhere it gets stored. The
 whole point of hashing it is that nothing but the board ever holds the
@@ -965,6 +975,40 @@ update door_passes set revoked_at = now() where label = 'Sat party';
 
 Revoke rather than delete. A deleted pass drops out of the constant time
 scan, and its rows in the attempt log lose their label on the kiosk.
+
+### Turning them all off, and clearing out the dead ones
+
+Three statements act on every pass at once. The generator page builds all
+three under **Manage existing passes**, so none of this needs typing.
+
+```sql
+-- A pass got out and you are not sure which. Reversible, one at a time.
+update door_passes set revoked_at = now() where revoked_at is null;
+```
+
+```sql
+-- Housekeeping: drop the revoked, expired and used up. Live passes and any
+-- dated for the future are left alone.
+delete from door_passes
+ where revoked_at is not null
+    or (valid_until is not null and now() >= valid_until)
+    or (max_uses is not null and use_count >= max_uses);
+```
+
+```sql
+-- Start again from nothing. Nobody can open the door from the page until
+-- you make a new pass. The intercom button is unaffected, as ever.
+delete from door_passes;
+```
+
+The middle one is the one worth running occasionally. Every stored pass is
+hashed on every attempt, about 55ms each, so a table full of last year's
+parties is what makes the door feel slow. The cost is that old log rows for
+those passes lose their label.
+
+There is no plaintext to look at, in any of this. `door_pass_status` shows
+labels, state, expiry and use counts, because that is all there is: a pass
+itself exists only in the hash, and whoever you gave it to.
 
 ---
 

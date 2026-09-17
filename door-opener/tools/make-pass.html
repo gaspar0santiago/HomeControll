@@ -43,6 +43,10 @@
   .row:first-of-type { margin-top: 4px; }
   .row > label { font-size: 12px; color: var(--muted); letter-spacing: 0.05em; }
   .hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  /* The confirm text is long on purpose, so the box sits beside its first
+     line rather than floating in the middle of a paragraph. */
+  .confirm { display: flex; gap: 9px; align-items: flex-start; line-height: 1.45; cursor: pointer; }
+  .confirm input { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; accent-color: var(--accent); }
 
   input[type=text], input[type=number], input[type=datetime-local], select {
     background: var(--surface2); border: 1px solid var(--border); border-radius: 9px;
@@ -242,6 +246,23 @@ from door_pass_status order by state, label;</textarea>
         <button type="button" data-action="uses">Change the use limit</button>
         <button type="button" data-action="delete">Delete for good</button>
       </div>
+    </div>
+
+    <div class="row">
+      <label>Or every pass at once</label>
+      <div class="quick">
+        <button type="button" data-action="revoke-all">Turn them all off</button>
+        <button type="button" data-action="prune">Delete the dead ones</button>
+        <button type="button" data-action="delete-all">Delete every pass</button>
+      </div>
+      <p class="hint">These ignore the label above. Run the query at the top first, so you can see what you are about to act on.</p>
+    </div>
+
+    <div class="row" id="row-m-confirm" hidden>
+      <label for="m-confirm" class="confirm">
+        <input type="checkbox" id="m-confirm">
+        Yes. I understand every pass stops working, including my own, and that nobody can open the door from the page until I make a new one.
+      </label>
     </div>
 
     <div class="row" id="row-m-until" hidden>
@@ -625,14 +646,21 @@ var mAction = null;
 
 el('m-note').classList.add('warn');
 
+// Act on the whole table rather than on one label. Kept apart from the
+// per-pass actions because the failure mode is different: mistyping a label
+// does nothing, while these do exactly what they say to everything.
+var BULK = { 'revoke-all': 1, 'prune': 1, 'delete-all': 1 };
+
 function renderManage() {
   var label = el('m-label').value.trim();
   el('row-m-until').hidden = mAction !== 'extend';
   el('row-m-uses').hidden = mAction !== 'uses';
+  el('row-m-confirm').hidden = mAction !== 'delete-all';
+  if (el('row-m-confirm').hidden) el('m-confirm').checked = false;
 
   if (!mAction) { el('row-m-sql').hidden = true; el('m-note').hidden = true; return; }
 
-  if (!label) {
+  if (!label && !BULK[mAction]) {
     el('m-note').hidden = false;
     el('m-note').textContent = 'Type the label of the pass first. Run the query above if you are not sure what it is.';
     el('row-m-sql').hidden = true;
@@ -674,6 +702,35 @@ function renderManage() {
     note = 'Prefer turning it off instead. Deleting drops the pass out of the constant time scan '
          + 'and its rows in the attempt log lose their label, so past entries show as "unknown pass". '
          + 'Revoking keeps the history and can be undone.';
+
+  } else if (mAction === 'revoke-all') {
+    sql = 'update door_passes set revoked_at = now()\n where revoked_at is null;';
+    note = 'Turns off every pass that is still on, yours included. Nothing is deleted, so the log '
+         + 'keeps every label and you can bring any of them back one at a time with "Turn it back on". '
+         + 'This is the one to reach for if a pass got out and you are not sure which.';
+
+  } else if (mAction === 'prune') {
+    // The three dead states in door_pass_status. Deliberately not "live"
+    // and not "not yet valid": a pass dated for next Saturday is not dead.
+    sql = 'delete from door_passes\n where revoked_at is not null\n'
+        + '    or (valid_until is not null and now() >= valid_until)\n'
+        + '    or (max_uses is not null and use_count >= max_uses);';
+    note = 'Deletes only the revoked, expired and used up ones. Live passes and any dated for the '
+         + 'future are left alone. This is the housekeeping worth doing: every stored pass is hashed '
+         + 'on every attempt, about 55ms each, so past forty or so the door gets visibly slower. '
+         + 'The cost is that old log rows for those passes lose their label.';
+
+  } else if (mAction === 'delete-all') {
+    if (!el('m-confirm').checked) {
+      note = 'Tick the box to confirm. This empties the whole table: every pass stops working at once, '
+           + 'and until you generate a new one the page cannot open the door for anybody. '
+           + 'The intercom button in the hallway still works, as it always does.';
+    } else {
+      sql = 'delete from door_passes;';
+      note = 'Empties the table. Attempts stay in the log but lose their labels, so past entries read '
+           + 'as "unknown pass". Consider "Turn them all off" instead: it stops every pass just as '
+           + 'fast, keeps the history readable, and can be undone.';
+    }
   }
 
   el('m-note').hidden = !note;
@@ -696,6 +753,8 @@ document.addEventListener('click', function (e) {
 ['m-label', 'm-until', 'm-uses'].forEach(function (id) {
   el(id).addEventListener('input', renderManage);
 });
+
+el('m-confirm').addEventListener('change', renderManage);
 
 validate();
 </script>

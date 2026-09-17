@@ -31,13 +31,21 @@ const KINDS = {
     what: 'the ESP32',
     can: 'claim one waiting command, and nothing else',
     where: 'firmware/door_opener/config.h, as DOOR_DEVICE_KEY',
-    needsRow: true
+    needsRow: true,
+    lost: `Shown once. Only its hash is stored, so this cannot be recovered.
+  Lose it and generate another, then re-run the SQL below.`
   },
   dashboard: {
     what: 'the home controller',
     can: 'read the recent attempt log, without IP addresses',
     where: 'home-controller/.env, as DOOR_DASHBOARD_KEY',
-    needsRow: false
+    needsRow: false,
+    // Not hashed anywhere. door-events compares this one as it is against
+    // its own Edge Function secret, so saying "only its hash is stored"
+    // here would be plainly untrue.
+    lost: `Shown once. This one is never hashed: door-events compares it as
+  it is against the Edge Function secret. Lose it and generate another,
+  then replace that secret.`
   }
 };
 
@@ -71,8 +79,7 @@ console.log(`
 
   ${'='.repeat(58)}
 
-  Shown once. Only its hash is stored, so this cannot be recovered.
-  Lose it and generate another, then re-run the SQL below.
+  ${meta.lost}
 
   It can:  ${meta.can}
   Goes in: ${meta.where}

@@ -147,47 +147,50 @@ jobs:
           fi
           echo "CLI refusals OK"
 
-      - name: The browser pass generator agrees with the CLI
+      - name: The browser pass generators agree with the CLI
         working-directory: door-opener
         run: |
-          # tools/make-pass.html reimplements make-pass.js so it can be used
+          # Both HTML tools reimplement make-pass.js so they can be used
           # without a clone. If the alphabet or the iteration count drift,
-          # every pass it makes is rejected as "Not recognised" and nothing
+          # every pass they make is rejected as "Not recognised" and nothing
           # anywhere explains why.
           cat > /tmp/gencheck.js <<'CHECK'
           const fs = require('fs');
-          const html = fs.readFileSync('tools/make-pass.html', 'utf8');
-          const cli  = fs.readFileSync('tools/make-pass.js', 'utf8');
+          const cli = fs.readFileSync('tools/make-pass.js', 'utf8');
+          const PAGES = ['tools/make-pass.html', 'tools/manage.html'];
 
-          function pick(src, name) {
-            const m = src.match(new RegExp(name + '\\s*=\\s*([^;]+);'));
-            if (!m) { console.error('could not find ' + name); process.exit(1); }
+          function pick(src, name, where) {
+            const m = src.match(new RegExp('(?:^|[^A-Z_])' + name + '\\s*=\\s*([^;]+);', 'm'));
+            if (!m) { console.error('could not find ' + name + ' in ' + where); process.exit(1); }
             return m[1].trim();
           }
 
-          for (const name of ['ALPHABET', 'ITERATIONS']) {
-            const a = pick(cli, name), b = pick(html, name);
-            if (a !== b) {
-              console.error(name + ' differs: make-pass.js has ' + a + ', make-pass.html has ' + b);
-              process.exit(1);
+          for (const page of PAGES) {
+            const html = fs.readFileSync(page, 'utf8');
+            for (const name of ['ALPHABET', 'ITERATIONS']) {
+              const a = pick(cli, name, 'make-pass.js'), b = pick(html, name, page);
+              if (a !== b) {
+                console.error(name + ' differs: make-pass.js has ' + a + ', ' + page + ' has ' + b);
+                process.exit(1);
+              }
             }
-            console.log(name + ' agrees: ' + a);
+            const script = html.match(/<script>([\s\S]*?)<\/script>/);
+            if (!script) { console.error('no inline script found in ' + page); process.exit(1); }
+            new Function(script[1]);
+            console.log(page + ': ALPHABET and ITERATIONS agree, inline script parses');
           }
-
-          const script = html.match(/<script>([\s\S]*?)<\/script>/);
-          if (!script) { console.error('no inline script found'); process.exit(1); }
-          new Function(script[1]);
-          console.log('inline script parses');
           CHECK
           node /tmp/gencheck.js
 
-          # It generates passes, so it must never be published. public/ is
-          # Netlify's publish directory.
-          if [ -e public/make-pass.html ]; then
-            echo "make-pass.html is in public/, which Netlify publishes"
-            exit 1
-          fi
-          echo "not in public/, so Netlify never serves it"
+          # Both make or manage passes, so neither may ever be published.
+          # public/ is Netlify's publish directory.
+          for f in make-pass.html manage.html; do
+            if [ -e "public/$f" ]; then
+              echo "$f is in public/, which Netlify publishes"
+              exit 1
+            fi
+          done
+          echo "neither is in public/, so Netlify never serves them"
 
       - name: The CLI's hash matches what the Edge Function computes
         working-directory: door-opener

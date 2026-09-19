@@ -31,13 +31,35 @@ const KINDS = {
     what: 'the ESP32',
     can: 'claim one waiting command, and nothing else',
     where: 'firmware/door_opener/config.h, as DOOR_DEVICE_KEY',
-    needsRow: true
+    needsRow: true,
+    lost: `Shown once. Only its hash is stored, so this cannot be recovered.
+  Lose it and generate another, then re-run the SQL below.`
+  },
+  admin: {
+    what: 'tools/manage.html, on your own machine',
+    can: 'list, create, edit and delete passes',
+    where: 'typed into tools/manage.html, which keeps it in that browser',
+    needsRow: false,
+    secret: 'DOOR_ADMIN_KEY',
+    // The most powerful of the three, and the only one that can mint a
+    // working pass. It still cannot open the door itself: door-admin has no
+    // path to door_consume or door_claim.
+    lost: `Shown once. This one is never hashed: door-admin compares it as it
+  is against the Edge Function secret. Lose it and generate another, then
+  replace that secret.`
   },
   dashboard: {
     what: 'the home controller',
     can: 'read the recent attempt log, without IP addresses',
     where: 'home-controller/.env, as DOOR_DASHBOARD_KEY',
-    needsRow: false
+    needsRow: false,
+    secret: 'DOOR_DASHBOARD_KEY',
+    // Not hashed anywhere. door-events compares this one as it is against
+    // its own Edge Function secret, so saying "only its hash is stored"
+    // here would be plainly untrue.
+    lost: `Shown once. This one is never hashed: door-events compares it as
+  it is against the Edge Function secret. Lose it and generate another,
+  then replace that secret.`
   }
 };
 
@@ -47,11 +69,14 @@ function usage(message) {
   Usage:
     node tools/make-key.js device      key for the ESP32
     node tools/make-key.js dashboard   key for the home controller
+    node tools/make-key.js admin       key for tools/manage.html
 
-  Two separate keys on purpose, so they rotate independently. Losing the
-  dashboard key leaks a list of times and labels. Losing the device key
-  gets someone the ability to swallow commands, which is why the board is
-  the only thing that ever holds it.
+  Three separate keys on purpose, so they rotate independently, and in
+  increasing order of what losing one costs you. The dashboard key leaks a
+  list of times and labels. The device key gets someone the ability to
+  swallow commands, which is why the board is the only thing that holds it.
+  The admin key can mint a pass that opens the door, so it is the one to
+  guard: it is a front door key with extra steps.
 `);
   process.exit(1);
 }
@@ -71,8 +96,7 @@ console.log(`
 
   ${'='.repeat(58)}
 
-  Shown once. Only its hash is stored, so this cannot be recovered.
-  Lose it and generate another, then re-run the SQL below.
+  ${meta.lost}
 
   It can:  ${meta.can}
   Goes in: ${meta.where}
@@ -87,11 +111,11 @@ console.log(`
   To rotate later, generate a new one and run that same statement. The old
   key stops working the moment it commits.
 ` : `
-  Nothing to run in SQL for this one. door-events compares it against its
-  own Edge Function secret and never reads the door_keys table, so setting
-  the secret is the whole job:
+  Nothing to run in SQL for this one. The Edge Function compares it against
+  its own secret and never reads the door_keys table, so setting the secret
+  is the whole job:
 
-    Project Settings > Edge Functions > Secrets > DOOR_DASHBOARD_KEY
+    Project Settings > Edge Functions > Secrets > ${meta.secret}
 
   Or with the CLI, from door-opener/ with the key in .env:
 

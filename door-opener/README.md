@@ -46,9 +46,15 @@ Nothing forwards a port into the flat.
          ^
          |  every 60 seconds, for the log
   home-controller/server.js  --->  kiosk door panel + a Tapo bulb flash
+
+
+  door-admin  (Edge Function, x-admin-key, passes only)
+         ^
+         |  on demand, from your own machine
+  tools/manage.html  --->  list, create, edit and delete passes
 ```
 
-Three separate keys, three separate blast radii:
+Four separate keys, four separate blast radii:
 
 | Key | Held by | What it can do | What it cannot do |
 | --- | --- | --- | --- |
@@ -56,8 +62,15 @@ Three separate keys, three separate blast radii:
 | `DOOR_DEVICE_KEY` | the ESP32 | claim one waiting command | read passes, read the log, queue an open |
 | the anon key | the ESP32, and any browser | nothing on its own | anything at all without one of the keys above |
 | `DOOR_DASHBOARD_KEY` | the home controller | read the last 50 attempts, without IPs | claim anything, open anything |
+| `DOOR_ADMIN_KEY` | `tools/manage.html`, on your machine | list, create, edit and delete passes | open the door, read a hash, read the log |
 
 Rotate any one of them without touching the others.
+
+The admin key is the one to guard. It cannot open the door itself, because
+`door-admin` has no path to `door_consume` or `door_claim` any more than
+`door-events` does. What it can do is create a pass that opens the door,
+which comes to the same thing with one extra step, so treat it as a front
+door key rather than as a management convenience.
 
 ### What actually drives the relay
 
@@ -504,7 +517,7 @@ node tools/make-key.js dashboard    # goes in home-controller/.env
 A single file that does all of this with a form instead of SQL by hand:
 generate a pass or choose your own, set a guest window from a preset, and
 produce the SQL for turning a pass off, back on, extending it, changing its
-use limit or deleting it. See **Choosing the pass yourself** below for what
+use limit or deleting it — one at a time, or every pass at once. See **Choosing the pass yourself** below for what
 it will and will not accept.
 
 Open it from disk. It is deliberately **not** in `public/`, so Netlify
@@ -523,9 +536,55 @@ CI checks its alphabet and iteration count against `make-pass.js`, because
 if those drift every pass it makes is rejected as "Not recognised" with
 nothing to explain why.
 
+### tools/manage.html
+
+The same jobs, without the copy and paste. `make-pass.html` hands you SQL to
+run; this one calls `door-admin` and does it, so a pass is created, revoked
+or deleted from the page itself, and the list of every pass and its state
+refreshes on its own while you watch it.
+
+It needs two things `make-pass.html` does not: `door-admin` deployed, and
+`DOOR_ADMIN_KEY` set as a secret. Generate that key with
+
+```bash
+node tools/make-key.js admin
+```
+
+then open `tools/manage.html` from disk, paste in the function URL and the
+key, and press Connect. The key is kept in that browser's local storage so
+you are not retyping it every time.
+
+**Which of the two to use.** `make-pass.html` needs nothing deployed and
+holds no key, so it still works when everything else is off, and it is the
+one to keep for that reason. `manage.html` is the everyday one. Neither is
+in `public/`, and CI fails if either moves there.
+
+What it deliberately keeps from the design around it:
+
+- **The pass is made in your browser.** The page derives the salt and the
+  PBKDF2 hash locally and sends only those, so `door-admin` never receives
+  a plaintext pass and cannot leak what it never had.
+- **No hashes come back.** Listing reads `door_pass_status`, which has never
+  carried a salt or a hash, so what is on screen is what you could paste
+  anywhere safely: labels, state, windows, counts.
+- **It cannot open the door.** There is no path from `door-admin` to
+  `door_consume` or `door_claim`, exactly as there is none from
+  `door-events`.
+- **The refusals are the same ones.** A guest pass with no end date is
+  refused, and so is a chosen pass whose window lets too much through. The
+  guest rule is a CHECK constraint on the table, so it holds however the row
+  is written, including from here.
+
+What it concedes, and there is no way around it: a key that can mint a
+working pass now exists outside the database, on your machine. That is the
+trade for not pasting SQL, and it is why the key is its own key, rotatable
+on its own, and why the page has a **Forget it** button.
+
 **No clone handy?** Both keys can be generated in any browser's console,
-with no repo, no Node and no install. Press F12 on any page, paste this,
-and change `'device'` to `'dashboard'` for the second one:
+with no repo, no Node and no install. Press F12 on any `https://` page and
+paste this. It has to be an `https://` page: `crypto.subtle` does not exist
+outside a secure context, and on a plain `http://` one this fails with a
+confusing `Cannot read properties of undefined`.
 
 ```js
 (async () => {
@@ -544,6 +603,14 @@ Same 32 bytes of randomness, same base64url, same SHA-256, so it produces
 exactly what `make-key.js` would. Verified over 2000 rounds against the
 CLI. It runs entirely in your browser: the key is never sent anywhere, and
 only its hash goes into the database.
+
+**That is the device key.** Run it again for the dashboard key, but take
+only the `KEY` line and ignore the SQL it prints. The dashboard key is not
+hashed and has no row: `door-events` compares it as it is against its own
+Edge Function secret, so a `door_keys` row for it would sit there unread,
+inviting the question of why it exists. Set it under **Project Settings >
+Edge Functions > Secrets** instead, and put the same value in
+`home-controller/.env`.
 
 Do not paste a key into a chat, an issue, or anywhere it gets stored. The
 whole point of hashing it is that nothing but the board ever holds the
@@ -581,6 +648,7 @@ supabase secrets set --env-file .env
 
 supabase functions deploy door-open   --no-verify-jwt
 supabase functions deploy door-events --no-verify-jwt
+supabase functions deploy door-admin  --no-verify-jwt
 ```
 
 `--no-verify-jwt` is required on both. A guest at the door has no Supabase
@@ -593,15 +661,17 @@ inlined into one self-contained file, because the dashboard editor cannot
 express an import reaching outside a function's own folder.
 
 1. **Edge Functions > Deploy a new function > Via editor**
-2. Name it exactly `door-open`, then again for `door-events`. The names are
-   part of the URLs the page and the home controller call.
+2. Name it exactly `door-open`, then again for `door-events`, and for
+   `door-admin` if you want the pass manager. The names are part of the
+   URLs the page, the home controller and the manager call.
 3. Replace the sample code with the contents of
    [`supabase/functions/door-open/bundled.ts`](supabase/functions/door-open/bundled.ts),
    readable and copyable straight from GitHub, and deploy.
 4. Turn **Verify JWT** off on both. A guest at the door has no Supabase
    account and no token.
-5. Set `DOOR_DASHBOARD_KEY` under **Project Settings > Edge Functions >
-   Secrets**, which is the same thing `supabase secrets set` does.
+5. Set `DOOR_DASHBOARD_KEY`, and `DOOR_ADMIN_KEY` if you deployed
+   `door-admin`, under **Project Settings > Edge Functions > Secrets**,
+   which is the same thing `supabase secrets set` does.
 
 Those bundles are generated, never hand edited. Change `index.ts` or
 `_shared/door.ts` and run `npm run bundle`; CI regenerates them and fails
@@ -966,6 +1036,40 @@ update door_passes set revoked_at = now() where label = 'Sat party';
 Revoke rather than delete. A deleted pass drops out of the constant time
 scan, and its rows in the attempt log lose their label on the kiosk.
 
+### Turning them all off, and clearing out the dead ones
+
+Three statements act on every pass at once. The generator page builds all
+three under **Manage existing passes**, so none of this needs typing.
+
+```sql
+-- A pass got out and you are not sure which. Reversible, one at a time.
+update door_passes set revoked_at = now() where revoked_at is null;
+```
+
+```sql
+-- Housekeeping: drop the revoked, expired and used up. Live passes and any
+-- dated for the future are left alone.
+delete from door_passes
+ where revoked_at is not null
+    or (valid_until is not null and now() >= valid_until)
+    or (max_uses is not null and use_count >= max_uses);
+```
+
+```sql
+-- Start again from nothing. Nobody can open the door from the page until
+-- you make a new pass. The intercom button is unaffected, as ever.
+delete from door_passes;
+```
+
+The middle one is the one worth running occasionally. Every stored pass is
+hashed on every attempt, about 55ms each, so a table full of last year's
+parties is what makes the door feel slow. The cost is that old log rows for
+those passes lose their label.
+
+There is no plaintext to look at, in any of this. `door_pass_status` shows
+labels, state, expiry and use counts, because that is all there is: a pass
+itself exists only in the hash, and whoever you gave it to.
+
 ---
 
 ## Security
@@ -1071,6 +1175,9 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
 | `supabase/functions/door-events/` | Dashboard only. Read only, no IPs |
 | `supabase/functions/_shared/door.ts` | PBKDF2, constant time compare, client IP, RPC |
 | `tools/make-pass.js` | Generates a pass, prints it once, prints the SQL |
+| `tools/make-pass.html` | The same in a form, plus the SQL for managing passes. No keys, nothing deployed |
+| `tools/manage.html` | Live pass manager. Talks to `door-admin`, so it needs that key |
+| `supabase/functions/door-admin/` | Admin only. Lists, creates, edits and deletes passes. No path to the door |
 | `firmware/door_opener/door_opener.ino` | The ESP32 sketch |
 | `firmware/door_opener/config.h.example` | Copy to `config.h`, which is gitignored |
 | `firmware/test/` | Stubbed Arduino headers so CI can compile the sketch without a toolchain |

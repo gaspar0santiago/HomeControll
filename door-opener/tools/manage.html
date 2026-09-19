@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Door passes</title>
+<!--
+  Live pass manager. Open it from disk on your own machine.
+
+  Unlike make-pass.html, which hands you SQL to paste, this talks to the
+  door-admin Edge Function and does the edits itself. It needs that function
+  deployed and DOOR_ADMIN_KEY set. See ../README.md.
+
+  Deliberately NOT in public/. It holds a key that can mint a working pass,
+  and public/ is what Netlify publishes. CI fails if it moves there.
+
+  The pass itself is generated and hashed here, in your browser. Only the
+  salt and the hash are ever sent, so the plaintext exists on screen once
+  and nowhere else. That is the same bargain the rest of this repo makes.
+-->
+<style>
+  :root {
+    --bg: #0a0a0f; --surface: #14141c; --surface2: #1e1e29;
+    --border: rgba(255,255,255,0.13); --text: #f0f0f0;
+    --muted: rgba(240,240,240,0.55); --accent: #c8ff00;
+    --ok: #34d399; --warn: #ffb347; --fail: #ff5d5d;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    line-height: 1.5; padding: 28px 18px 60px;
+  }
+  main { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+
+  h1 { font-size: 19px; letter-spacing: 0.16em; font-weight: 500; }
+  .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+  fieldset { border: 1px solid var(--border); border-radius: 14px; padding: 18px; background: var(--surface); }
+  legend { font-size: 11px; letter-spacing: 0.16em; color: var(--muted); padding: 0 8px; text-transform: uppercase; }
+
+  .row { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
+  .row:first-of-type { margin-top: 4px; }
+  .row > label { font-size: 12px; color: var(--muted); letter-spacing: 0.05em; }
+  .hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  .two { display: flex; flex-direction: row; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .two > * { flex: 1 1 200px; display: flex; flex-direction: column; gap: 7px; }
+  .two label { font-size: 12px; color: var(--muted); letter-spacing: 0.05em; }
+
+  input[type=text], input[type=password], input[type=number], input[type=datetime-local] {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 9px;
+    color: var(--text); font: inherit; font-size: 15px; padding: 10px 12px; width: 100%;
+    min-height: 44px;
+  }
+  input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); min-height: 44px; }
+
+  .seg { display: flex; gap: 8px; }
+  .seg button {
+    flex: 1; min-height: 46px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface2); color: var(--muted); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: rgba(200,255,0,0.10); }
+
+  .quick { display: flex; flex-direction: row; gap: 8px; flex-wrap: wrap; }
+  .quick button {
+    border: 1px solid var(--border); border-radius: 100px; background: transparent;
+    color: var(--muted); font: inherit; font-size: 12px; padding: 9px 14px; cursor: pointer; min-height: 40px;
+  }
+  .quick button:hover { color: var(--accent); border-color: rgba(200,255,0,0.45); }
+  .quick button.danger:hover { color: var(--fail); border-color: rgba(255,93,93,0.5); }
+
+  .go {
+    min-height: 56px; border: none; border-radius: 12px; background: var(--accent);
+    color: #0a0a0f; font: inherit; font-size: 16px; font-weight: 700; letter-spacing: 0.1em; cursor: pointer;
+  }
+  .go:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  .note { font-size: 12.5px; padding: 10px 12px; border-radius: 9px; border: 1px solid; line-height: 1.5; }
+  .note.warn { color: var(--warn); border-color: rgba(255,179,71,0.4); background: rgba(255,179,71,0.08); }
+  .note.fail { color: var(--fail); border-color: rgba(255,93,93,0.4); background: rgba(255,93,93,0.08); }
+  .note.ok   { color: var(--ok);   border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.08); }
+
+  .pass {
+    font-size: clamp(26px, 7vw, 38px); letter-spacing: 0.16em; text-align: center;
+    padding: 20px 12px; border: 1px solid rgba(200,255,0,0.45); border-radius: 12px;
+    background: rgba(200,255,0,0.06); color: var(--accent); word-break: break-all;
+  }
+  .copy {
+    border: 1px solid var(--border); border-radius: 9px; background: var(--surface2);
+    color: var(--text); font: inherit; font-size: 12px; padding: 9px 14px; cursor: pointer; min-height: 40px;
+  }
+  .said { font-size: 11.5px; color: var(--ok); margin-left: 8px; }
+
+  /* ── the live list ───────────────────────────────────────── */
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 7px; }
+  .dot.on { background: var(--ok); }
+  .dot.off { background: var(--fail); }
+  .dot.idle { background: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  th {
+    text-align: left; font-weight: 500; font-size: 10.5px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted); padding: 0 10px 8px; white-space: nowrap;
+  }
+  td { padding: 11px 10px; border-top: 1px solid var(--border); vertical-align: middle; }
+  tr.sel td { background: rgba(200,255,0,0.06); }
+  .label { font-size: 14px; }
+  .kind { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+  .state {
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 4px 9px; border-radius: 100px; border: 1px solid; white-space: nowrap;
+  }
+  .state.live { color: var(--ok); border-color: rgba(52,211,153,0.45); }
+  .state.revoked, .state.expired, .state.usedup { color: var(--fail); border-color: rgba(255,93,93,0.4); }
+  .state.notyet { color: var(--warn); border-color: rgba(255,179,71,0.4); }
+  .when { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; }
+  .pick {
+    border: 1px solid var(--border); border-radius: 8px; background: transparent;
+    color: var(--muted); font: inherit; font-size: 11.5px; padding: 7px 12px; cursor: pointer; min-height: 36px;
+  }
+  .pick:hover { color: var(--accent); border-color: rgba(200,255,0,0.45); }
+  .empty { padding: 26px 10px; text-align: center; color: var(--muted); font-size: 13px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+
+  <header>
+    <h1>DOOR PASSES</h1>
+    <p class="sub">Live from your database. Everything here talks to <code>door-admin</code>; nothing is stored in this file.</p>
+  </header>
+
+  <!-- ── connection ─────────────────────────────────────────── -->
+  <fieldset>
+    <legend>Connection</legend>
+
+    <div class="row">
+      <label for="url">door-admin URL</label>
+      <input type="text" id="url" spellcheck="false" autocomplete="off"
+             placeholder="https://YOUR-PROJECT-REF.supabase.co/functions/v1/door-admin">
+    </div>
+
+    <div class="row">
+      <label for="key">DOOR_ADMIN_KEY</label>
+      <input type="password" id="key" spellcheck="false" autocomplete="off" placeholder="the admin key">
+      <p class="hint">
+        Kept in this browser's local storage so you are not retyping it, which means it is
+        readable by anything that can read this browser profile. It is the key that can mint a
+        working pass, so treat this machine accordingly. <strong>Forget it</strong> clears it.
+      </p>
+    </div>
+
+    <div class="row quick">
+      <button type="button" id="connect">Connect</button>
+      <button type="button" id="forget" class="danger">Forget it</button>
+    </div>
+
+    <div class="row"><div class="note fail" id="conn-error" hidden></div></div>
+  </fieldset>
+
+  <!-- ── the live list ──────────────────────────────────────── -->
+  <fieldset>
+    <legend>All passes</legend>
+
+    <div class="bar">
+      <span class="hint"><span class="dot idle" id="dot"></span><span id="status">Not connected</span></span>
+      <span class="quick">
+        <button type="button" id="refresh">Refresh now</button>
+        <button type="button" id="autotoggle" aria-pressed="true">Auto: on</button>
+      </span>
+    </div>
+
+    <div id="list-wrap" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Label</th><th>State</th><th>Starts</th><th>Ends</th><th>Uses</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty" hidden>No passes yet. Make one below.</div>
+  </fieldset>
+
+  <!-- ── edit one ───────────────────────────────────────────── -->
+  <fieldset id="fs-edit" hidden>
+    <legend>Editing</legend>
+
+    <div class="row">
+      <label>Which pass</label>
+      <div class="note ok" id="edit-who"></div>
+    </div>
+
+    <div class="row quick">
+      <button type="button" id="e-off">Turn it off</button>
+      <button type="button" id="e-on">Turn it back on</button>
+      <button type="button" class="danger" id="e-del">Delete for good</button>
+      <button type="button" id="e-close">Done</button>
+    </div>
+
+    <div class="row two">
+      <div>
+        <label for="e-from">Starts (empty = immediately)</label>
+        <input type="datetime-local" id="e-from">
+      </div>
+      <div>
+        <label for="e-until">Ends (empty = never)</label>
+        <input type="datetime-local" id="e-until">
+      </div>
+    </div>
+    <div class="row quick">
+      <button type="button" data-epreset="tonight">Tonight until 3am</button>
+      <button type="button" data-epreset="saturday">Sat 8pm to Sun 3am</button>
+      <button type="button" data-epreset="week">Next 7 days</button>
+      <button type="button" data-epreset="clear">No end</button>
+      <button type="button" id="e-window">Save the window</button>
+    </div>
+
+    <div class="row">
+      <label for="e-uses">Maximum uses (empty = unlimited)</label>
+      <input type="number" id="e-uses" min="1" step="1" placeholder="unlimited">
+      <p class="hint">Counts total uses ever, not from now. Check the Uses column before capping.</p>
+    </div>
+    <div class="row quick"><button type="button" id="e-usesave">Save the use limit</button></div>
+
+    <div class="row"><div class="note warn" id="edit-note" hidden></div></div>
+  </fieldset>
+
+  <!-- ── create ─────────────────────────────────────────────── -->
+  <fieldset>
+    <legend>New pass</legend>
+
+    <div class="row">
+      <label>Kind</label>
+      <div class="seg" id="kind">
+        <button type="button" data-kind="resident" aria-pressed="true">Resident</button>
+        <button type="button" data-kind="guest" aria-pressed="false">Guest</button>
+      </div>
+      <p class="hint" id="kind-hint">Never expires unless you give it a window. For someone who lives here.</p>
+    </div>
+
+    <div class="row">
+      <label for="label">Label</label>
+      <input type="text" id="label" placeholder="Santi" maxlength="60" autocomplete="off">
+    </div>
+
+    <div class="row">
+      <label>The pass itself</label>
+      <div class="seg" id="source">
+        <button type="button" data-source="random" aria-pressed="true">Random</button>
+        <button type="button" data-source="custom" aria-pressed="false">Choose my own</button>
+      </div>
+    </div>
+
+    <div class="row" id="row-length">
+      <label for="length">Length: <span id="length-out">8</span> characters</label>
+      <input type="range" id="length" min="6" max="16" value="8">
+    </div>
+
+    <div class="row" id="row-custom" hidden>
+      <label for="custom">Your pass</label>
+      <input type="text" id="custom" placeholder="DIA" autocomplete="off" spellcheck="false">
+      <p class="hint">Case, spaces and dashes are ignored, exactly as the door page ignores them.</p>
+      <div class="note warn" id="custom-warn" hidden></div>
+    </div>
+
+    <div class="row two">
+      <div>
+        <label for="from">Starts (empty = immediately)</label>
+        <input type="datetime-local" id="from">
+      </div>
+      <div>
+        <label for="until">Ends (empty = never)</label>
+        <input type="datetime-local" id="until">
+      </div>
+    </div>
+    <div class="row quick">
+      <button type="button" data-preset="tonight">Tonight until 3am</button>
+      <button type="button" data-preset="saturday">Sat 8pm to Sun 3am</button>
+      <button type="button" data-preset="day">Next 24 hours</button>
+      <button type="button" data-preset="week">Next 7 days</button>
+    </div>
+
+    <div class="row">
+      <label for="uses">Maximum uses (empty = unlimited)</label>
+      <input type="number" id="uses" min="1" step="1" placeholder="unlimited">
+    </div>
+
+    <div class="row"><div class="note fail" id="problem" hidden></div></div>
+    <button type="button" class="go" id="go">CREATE</button>
+
+    <div class="row" id="row-made" hidden>
+      <div class="note warn">Shown once. Nothing stores the plaintext, so copy it now.</div>
+      <div class="pass" id="made"></div>
+      <div class="quick">
+        <button type="button" class="copy" id="copy-made">Copy pass</button>
+        <span class="said" id="said" hidden>copied</span>
+      </div>
+    </div>
+  </fieldset>
+
+</main>
+
+<script>
+'use strict';
+
+// Must match tools/make-pass.js and supabase/functions/_shared/door.ts.
+// CI fails if these drift, because a mismatch means every pass made here is
+// rejected at the door as "Not recognised" with nothing to explain why.
+var ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+var ITERATIONS = 120000;
+var SALT_BYTES = 16;
+var KEY_BITS = 256;
+
+// Same rule as make-pass.html: what decides whether a chosen pass holds is
+// not its length but what its window lets through.
+var KEYPAD = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+var GUESSES_PER_HOUR = 120;
+var MIN_CUSTOM = 3;
+var MAX_GUESS_ODDS = 0.10;
+var NO_EXPIRY_HOURS = 24 * 365 * 10;
+
+var REFRESH_MS = 5000;
+var STORE = 'doorAdmin';
+
+var el = function (id) { return document.getElementById(id); };
+var state = { kind: 'resident', source: 'random' };
+var passes = [];
+var selected = null;
+var timer = null;
+var auto = true;
+
+// ── helpers ───────────────────────────────────────────────────
+function normalise(s) { return s.toUpperCase().replace(/[^0-9A-Z]/g, ''); }
+function hex(bytes) {
+  return Array.prototype.map.call(bytes, function (b) {
+    return b.toString(16).padStart(2, '0');
+  }).join('');
+}
+function pretty(p) { return (p.match(/.{1,4}/g) || [p]).join('-'); }
+function big(n) { return Math.round(n).toLocaleString('en-GB'); }
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function localToIso(value) {
+  if (!value) return null;
+  var d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+function toInputValue(d) {
+  var pad = function (n) { return String(n).padStart(2, '0'); };
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+function readable(d) {
+  try {
+    return d.toLocaleString([], {
+      weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit'
+    });
+  } catch (e) { return d.toString(); }
+}
+
+function combinations(pass) { return Math.pow(/[0-9]/.test(pass) ? 36 : 26, pass.length); }
+function hoursUntil(until) { return until ? (until.getTime() - Date.now()) / 3600000 : Infinity; }
+function guessOdds(pass, until) {
+  var hours = Math.min(hoursUntil(until), NO_EXPIRY_HOURS);
+  if (hours <= 0) return 0;
+  return Math.min(1, (hours * GUESSES_PER_HOUR) / combinations(pass));
+}
+function affordableHours(pass) { return (combinations(pass) * MAX_GUESS_ODDS) / GUESSES_PER_HOUR; }
+function describeHours(h) {
+  if (h < 48) return h.toFixed(1) + ' hours';
+  if (h < 24 * 730) return big(h / 24) + ' days';
+  return big(h / 24 / 365) + ' years';
+}
+
+/** Identical derivation to make-pass.js, or nothing made here would open. */
+async function derive(pass) {
+  var salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  var key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(normalise(pass)), 'PBKDF2', false, ['deriveBits']);
+  var bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: salt, iterations: ITERATIONS }, key, KEY_BITS);
+  return { salt: hex(salt), hash: hex(new Uint8Array(bits)) };
+}
+
+// ── talking to door-admin ─────────────────────────────────────
+function cfg() {
+  return { url: el('url').value.trim(), key: el('key').value.trim() };
+}
+
+async function api(action, payload) {
+  var c = cfg();
+  if (!c.url || !c.key) throw new Error('Set the URL and key first.');
+
+  var res;
+  try {
+    res = await fetch(c.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': c.key },
+      body: JSON.stringify(Object.assign({ action: action }, payload || {}))
+    });
+  } catch (e) {
+    // A bad host, no network, or the function not deployed all land here,
+    // because the browser will not say which for a cross-origin request.
+    throw new Error('Could not reach door-admin. Check the URL, and that the function is deployed.');
+  }
+
+  var data = null;
+  try { data = await res.json(); } catch (e) { /* handled below */ }
+
+  if (res.status === 401) throw new Error('Refused (401). Wrong DOOR_ADMIN_KEY, or Verify JWT is still on for this function.');
+  if (!data) throw new Error('door-admin answered unexpectedly (HTTP ' + res.status + ').');
+  if (!data.ok && data.reason) throw new Error(data.detail || data.reason);
+  return data;
+}
+
+function setStatus(text, kind) {
+  el('status').textContent = text;
+  el('dot').className = 'dot ' + (kind || 'idle');
+}
+
+function showConnError(message) {
+  el('conn-error').hidden = !message;
+  el('conn-error').textContent = message || '';
+}
+
+// ── the live list ─────────────────────────────────────────────
+var STATE_CLASS = {
+  'live': 'live', 'revoked': 'revoked', 'expired': 'expired',
+  'used up': 'usedup', 'not yet valid': 'notyet'
+};
+
+function when(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  return isNaN(d.getTime()) ? '—' : readable(d);
+}
+
+function remaining(iso) {
+  if (!iso) return '';
+  var ms = new Date(iso).getTime() - Date.now();
+  if (isNaN(ms) || ms <= 0) return '';
+  var h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  if (h >= 48) return ' (' + Math.round(h / 24) + 'd left)';
+  if (h >= 1) return ' (' + h + 'h ' + m + 'm left)';
+  return ' (' + m + 'm left)';
+}
+
+function render() {
+  var body = el('rows');
+  el('list-wrap').hidden = passes.length === 0;
+  el('empty').hidden = passes.length !== 0;
+  body.innerHTML = '';
+
+  passes.forEach(function (p) {
+    var tr = document.createElement('tr');
+    if (selected && selected.id === p.id) tr.className = 'sel';
+    tr.innerHTML =
+      '<td><div class="label">' + esc(p.label) + '</div><div class="kind">' + esc(p.kind) + '</div></td>' +
+      '<td><span class="state ' + (STATE_CLASS[p.state] || '') + '">' + esc(p.state) + '</span></td>' +
+      '<td class="when">' + esc(when(p.valid_from)) + '</td>' +
+      '<td class="when">' + esc(when(p.valid_until)) + esc(remaining(p.valid_until)) + '</td>' +
+      '<td class="num">' + p.use_count + (p.max_uses ? ' / ' + p.max_uses : '') + '</td>' +
+      '<td></td>';
+
+    var pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'pick';
+    pick.textContent = 'Edit';
+    pick.addEventListener('click', function () { select(p); });
+    tr.lastElementChild.appendChild(pick);
+    body.appendChild(tr);
+  });
+}
+
+async function refresh(quiet) {
+  try {
+    var data = await api('list');
+    passes = data.passes || [];
+    // Keep the edit panel pointed at live data rather than a stale copy.
+    if (selected) {
+      var still = passes.filter(function (p) { return p.id === selected.id; })[0];
+      if (still) { selected = still; paintEdit(); } else { closeEdit(); }
+    }
+    render();
+    setStatus(passes.length + ' pass' + (passes.length === 1 ? '' : 'es') + ', updated ' + readable(new Date()), 'on');
+    showConnError('');
+  } catch (e) {
+    setStatus('Not updating', 'off');
+    if (!quiet) showConnError(e.message);
+    stopAuto();
+  }
+}
+
+function startAuto() {
+  stopAuto();
+  if (auto) timer = setInterval(function () { refresh(true); }, REFRESH_MS);
+}
+function stopAuto() { if (timer) { clearInterval(timer); timer = null; } }
+
+// ── editing one ───────────────────────────────────────────────
+function select(p) {
+  selected = p;
+  el('fs-edit').hidden = false;
+  paintEdit();
+  render();
+  el('fs-edit').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeEdit() {
+  selected = null;
+  el('fs-edit').hidden = true;
+  el('edit-note').hidden = true;
+  render();
+}
+
+function paintEdit() {
+  if (!selected) return;
+  el('edit-who').textContent = selected.label + ' — ' + selected.kind + ', ' + selected.state;
+  el('e-from').value = selected.valid_from ? toInputValue(new Date(selected.valid_from)) : '';
+  el('e-until').value = selected.valid_until ? toInputValue(new Date(selected.valid_until)) : '';
+  el('e-uses').value = selected.max_uses == null ? '' : selected.max_uses;
+}
+
+function editNote(message, cls) {
+  el('edit-note').hidden = !message;
+  el('edit-note').className = 'note ' + (cls || 'warn');
+  el('edit-note').textContent = message || '';
+}
+
+async function act(action, payload, okMessage) {
+  if (!selected) return;
+  try {
+    await api(action, Object.assign({ id: selected.id }, payload || {}));
+    editNote(okMessage, 'ok');
+    await refresh();
+  } catch (e) {
+    editNote(e.message, 'fail');
+  }
+}
+
+el('e-off').addEventListener('click', function () {
+  act('revoke', { off: true }, 'Turned off. Anyone typing it is told so. Nothing was deleted, so you can turn it back on.');
+});
+el('e-on').addEventListener('click', function () {
+  act('revoke', { off: false }, 'Turned back on. If its window has passed it stays expired: revoking and expiring are separate.');
+});
+el('e-window').addEventListener('click', function () {
+  var from = localToIso(el('e-from').value);
+  var until = localToIso(el('e-until').value);
+  if (from && until && from.getTime() >= until.getTime()) {
+    return editNote('The start is not before the end.', 'fail');
+  }
+  act('window', {
+    valid_from: from ? from.toISOString() : null,
+    valid_until: until ? until.toISOString() : null
+  }, 'Window saved.');
+});
+el('e-usesave').addEventListener('click', function () {
+  var u = el('e-uses').value.trim();
+  if (u !== '' && (!/^\d+$/.test(u) || Number(u) < 1)) {
+    return editNote('Use limit must be a whole number of 1 or more, or empty for unlimited.', 'fail');
+  }
+  act('uses', { max_uses: u === '' ? null : Number(u) }, u === '' ? 'Unlimited uses.' : 'Capped at ' + u + '.');
+});
+el('e-del').addEventListener('click', function () {
+  if (!selected) return;
+  if (!confirm('Delete "' + selected.label + '" for good?\n\nTurning it off is usually better: a deleted pass '
+    + 'drops out of the constant time scan, and its rows in the attempt log lose their label.')) return;
+  act('delete', {}, 'Deleted.');
+  closeEdit();
+});
+el('e-close').addEventListener('click', closeEdit);
+
+el('fs-edit').addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-epreset]');
+  if (!b) return;
+  var now = new Date(), from = new Date(now), until = new Date(now);
+  if (b.dataset.epreset === 'clear') { el('e-until').value = ''; return; }
+  if (b.dataset.epreset === 'tonight') {
+    until.setDate(until.getDate() + (now.getHours() < 3 ? 0 : 1));
+    until.setHours(3, 0, 0, 0);
+    el('e-from').value = '';
+  } else if (b.dataset.epreset === 'saturday') {
+    from.setDate(from.getDate() + ((6 - from.getDay()) + 7) % 7);
+    from.setHours(20, 0, 0, 0);
+    until = new Date(from);
+    until.setDate(until.getDate() + 1);
+    until.setHours(3, 0, 0, 0);
+    el('e-from').value = toInputValue(from);
+  } else {
+    until.setDate(until.getDate() + 7);
+    el('e-from').value = '';
+  }
+  el('e-until').value = toInputValue(until);
+});
+
+// ── creating ──────────────────────────────────────────────────
+['kind', 'source'].forEach(function (id) {
+  el(id).addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    Array.prototype.forEach.call(el(id).querySelectorAll('button'), function (x) {
+      x.setAttribute('aria-pressed', String(x === b));
+    });
+    if (id === 'kind') {
+      state.kind = b.dataset.kind;
+      el('kind-hint').textContent = state.kind === 'guest'
+        ? 'Must have an end time. The database refuses a guest pass without one, however it is created.'
+        : 'Never expires unless you give it a window. For someone who lives here.';
+    } else {
+      state.source = b.dataset.source;
+      el('row-length').hidden = state.source !== 'random';
+      el('row-custom').hidden = state.source !== 'custom';
+    }
+    validate();
+  });
+});
+
+el('length').addEventListener('input', function () {
+  el('length-out').textContent = el('length').value;
+});
+
+function refreshCustomWarn() {
+  var p = normalise(el('custom').value);
+  var bad = [];
+  for (var i = 0; i < p.length; i++) {
+    if (KEYPAD.indexOf(p[i]) === -1 && bad.indexOf(p[i]) === -1) bad.push(p[i]);
+  }
+  var msgs = [];
+  if (bad.length) msgs.push('The keypad has no ' + bad.join(', ') + '.');
+  if (p.length) {
+    var until = localToIso(el('until').value);
+    var combos = big(combinations(p));
+    var hours = hoursUntil(until);
+    if (!isFinite(hours)) {
+      msgs.push(combos + ' combinations and no end time, so it stands on its length alone: about '
+        + describeHours(combinations(p) / GUESSES_PER_HOUR) + ' of sustained guessing to exhaust.');
+    } else if (hours > 0) {
+      var odds = guessOdds(p, until);
+      msgs.push(combos + ' combinations, and the limiter allows about ' + big(hours * GUESSES_PER_HOUR)
+        + ' tries before this expires: '
+        + (odds >= 1 ? 'near certain' : odds < 0.001 ? 'under a 0.1%' : 'about a ' + (odds * 100).toFixed(1) + '%')
+        + ' chance of being found inside its window.');
+    }
+  }
+  el('custom-warn').hidden = msgs.length === 0;
+  el('custom-warn').innerHTML = msgs.join('<br><br>');
+}
+
+el('custom').addEventListener('input', function () { refreshCustomWarn(); validate(); });
+
+el('go').parentElement.addEventListener('click', function (e) {
+  var b = e.target.closest('button[data-preset]');
+  if (!b) return;
+  var now = new Date(), from = new Date(now), until = new Date(now);
+  if (b.dataset.preset === 'tonight') {
+    until.setDate(until.getDate() + (now.getHours() < 3 ? 0 : 1));
+    until.setHours(3, 0, 0, 0);
+  } else if (b.dataset.preset === 'saturday') {
+    from.setDate(from.getDate() + ((6 - from.getDay()) + 7) % 7);
+    from.setHours(20, 0, 0, 0);
+    until = new Date(from);
+    until.setDate(until.getDate() + 1);
+    until.setHours(3, 0, 0, 0);
+  } else if (b.dataset.preset === 'day') {
+    until.setDate(until.getDate() + 1);
+  } else {
+    until.setDate(until.getDate() + 7);
+  }
+  el('from').value = b.dataset.preset === 'saturday' ? toInputValue(from) : '';
+  el('until').value = toInputValue(until);
+  refreshCustomWarn();
+  validate();
+});
+
+function problems() {
+  var out = [];
+  if (!el('label').value.trim()) out.push('Give it a label, so you know what it was for later.');
+
+  var custom = normalise(el('custom').value);
+  if (state.source === 'custom' && custom.length < MIN_CUSTOM) {
+    out.push('Type the pass you want, at least ' + MIN_CUSTOM + ' characters.');
+  }
+
+  var until = localToIso(el('until').value);
+  var from = localToIso(el('from').value);
+
+  if (state.kind === 'guest' && !until) {
+    out.push('A guest pass must have an end time. Use a quick set button, or pick one.');
+  }
+  if (until && until.getTime() <= Date.now()) {
+    out.push('That end time has already passed, so the pass would be dead on arrival.');
+  }
+  if (from && until && from.getTime() >= until.getTime()) out.push('The start is not before the end.');
+
+  if (state.source === 'custom' && custom.length >= MIN_CUSTOM && guessOdds(custom, until) > MAX_GUESS_ODDS) {
+    out.push('"' + custom + '" cannot carry ' + (until ? 'a window that long' : 'a pass with no end time')
+      + ': it can cover about ' + describeHours(affordableHours(custom))
+      + ' before guessing it becomes likelier than ' + Math.round(MAX_GUESS_ODDS * 100) + '%. '
+      + (until ? 'Shorten the end time' : 'Set an end time') + ', or add a character.');
+  }
+
+  var uses = el('uses').value.trim();
+  if (uses !== '' && (!/^\d+$/.test(uses) || Number(uses) < 1)) {
+    out.push('Maximum uses must be a whole number of 1 or more, or empty for unlimited.');
+  }
+  return out;
+}
+
+function validate() {
+  var p = problems();
+  el('problem').hidden = p.length === 0;
+  el('problem').innerHTML = p.join('<br>');
+  el('go').disabled = p.length > 0;
+  return p.length === 0;
+}
+
+['label', 'from', 'until', 'uses'].forEach(function (id) {
+  el(id).addEventListener('input', function () {
+    if (id === 'until') refreshCustomWarn();
+    validate();
+  });
+});
+
+el('go').addEventListener('click', async function () {
+  if (!validate()) return;
+
+  var pass;
+  if (state.source === 'random') {
+    var n = Number(el('length').value);
+    var rb = crypto.getRandomValues(new Uint8Array(n));
+    pass = '';
+    // 256 divides by 32 exactly, so masking to 5 bits is uniform.
+    for (var i = 0; i < n; i++) pass += ALPHABET[rb[i] & 31];
+  } else {
+    pass = normalise(el('custom').value);
+  }
+
+  el('go').disabled = true;
+  try {
+    var d = await derive(pass);
+    var from = localToIso(el('from').value);
+    var until = localToIso(el('until').value);
+    var uses = el('uses').value.trim();
+
+    await api('create', {
+      label: el('label').value.trim(),
+      kind: state.kind,
+      salt: d.salt,
+      hash: d.hash,
+      valid_from: from ? from.toISOString() : null,
+      valid_until: until ? until.toISOString() : null,
+      max_uses: uses === '' ? null : Number(uses)
+    });
+
+    el('row-made').hidden = false;
+    el('made').textContent = pretty(pass);
+    el('made').dataset.raw = pass;
+    el('label').value = '';
+    el('custom').value = '';
+    el('custom-warn').hidden = true;
+    el('row-made').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    await refresh();
+  } catch (e) {
+    el('problem').hidden = false;
+    el('problem').textContent = e.message;
+  }
+  validate();
+});
+
+el('copy-made').addEventListener('click', function () {
+  var raw = el('made').dataset.raw || '';
+  navigator.clipboard.writeText(raw).then(function () {
+    el('said').hidden = false;
+    setTimeout(function () { el('said').hidden = true; }, 1400);
+  });
+});
+
+// ── connection wiring ─────────────────────────────────────────
+function save() {
+  try {
+    localStorage.setItem(STORE, JSON.stringify(cfg()));
+  } catch (e) { /* private window, or storage blocked: it still works, just not remembered */ }
+}
+
+function load() {
+  try {
+    var saved = JSON.parse(localStorage.getItem(STORE) || '{}');
+    if (saved.url) el('url').value = saved.url;
+    if (saved.key) el('key').value = saved.key;
+  } catch (e) { /* as above */ }
+}
+
+el('connect').addEventListener('click', async function () {
+  save();
+  setStatus('Connecting…', 'idle');
+  await refresh();
+  startAuto();
+});
+
+el('forget').addEventListener('click', function () {
+  try { localStorage.removeItem(STORE); } catch (e) { /* nothing to do */ }
+  el('key').value = '';
+  stopAuto();
+  passes = [];
+  render();
+  closeEdit();
+  setStatus('Key forgotten', 'idle');
+});
+
+el('refresh').addEventListener('click', function () { refresh(); });
+
+el('autotoggle').addEventListener('click', function () {
+  auto = !auto;
+  el('autotoggle').setAttribute('aria-pressed', String(auto));
+  el('autotoggle').textContent = 'Auto: ' + (auto ? 'on' : 'off');
+  if (auto) startAuto(); else stopAuto();
+});
+
+// Polling a door you are not looking at is pointless, and a laptop lid is
+// the usual reason a tab stops being looked at.
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) stopAuto();
+  else if (auto && el('key').value) { refresh(true); startAuto(); }
+});
+
+load();
+validate();
+if (el('url').value && el('key').value) {
+  refresh().then(startAuto);
+}
+</script>
+</body>
+</html>

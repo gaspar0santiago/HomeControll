@@ -422,9 +422,190 @@ revoke all on public.door_pass_status from anon, authenticated;
 grant  select on public.door_pass_status to service_role;
 
 -- ── REVOKING ──────────────────────────────────────────────────
--- There is no admin UI, by design. To turn a pass off:
+-- Everything here is reachable with SQL alone. To turn a pass off:
 --
 --   update door_passes set revoked_at = now() where label = 'Sat party';
 --
 -- Revoke rather than delete. A deleted pass drops out of the constant time
 -- scan and its attempts lose their label on the dashboard.
+--
+-- There is an admin path now, under ADMIN below, but it is additive: it
+-- calls the same table through its own key, and nothing above this line
+-- depends on it existing.
+
+-- ── ADMIN: THE SAME EDITS, WITHOUT THE SQL EDITOR ─────────────
+-- Everything above this line is reachable with SQL alone, and was the whole
+-- management surface for a while. These exist so tools/manage.html can do
+-- the same edits over HTTPS instead of by copy and paste.
+--
+-- The reasoning that said "no admin UI" still holds, so this concedes as
+-- little as possible to it:
+--
+--   * No new public endpoint. door-admin sits behind its own key, the same
+--     way door-events does, and that key can be rotated on its own.
+--   * No service role key in a browser. These are SECURITY DEFINER and
+--     granted to service_role only, so the Edge Function is the only thing
+--     that can reach them, exactly as with every other function here.
+--   * No plaintext leaves the page. manage.html derives the salt and hash
+--     in the browser and sends those; door_admin_create never sees a pass,
+--     which is why it takes a hash rather than making one.
+--   * No hashes come back. door_admin_list returns what door_pass_status
+--     returns, and that view has never carried salt or hash.
+--
+-- What it does concede: a key that can create a working pass now exists
+-- outside the database. Treat it like the front door key it is.
+
+create or replace function public.door_admin_list()
+returns table (
+  id          uuid,
+  label       text,
+  kind        text,
+  state       text,
+  valid_from  timestamptz,
+  valid_until timestamptz,
+  use_count   integer,
+  max_uses    integer,
+  created_at  timestamptz,
+  revoked_at  timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select s.id, s.label, s.kind, s.state, s.valid_from, s.valid_until,
+         s.use_count, s.max_uses, s.created_at, s.revoked_at
+    from public.door_pass_status s
+   order by s.created_at desc;
+$$;
+
+-- Takes a salt and hash rather than a pass. The plaintext is derived and
+-- shown in the browser and never crosses the wire, so this function cannot
+-- leak what it never receives.
+--
+-- The guest-must-expire constraint on the table still applies, so a guest
+-- pass with no end date is refused here exactly as it is in the SQL editor.
+create or replace function public.door_admin_create(
+  p_label       text,
+  p_kind        text,
+  p_salt        text,
+  p_hash        text,
+  p_iterations  integer,
+  p_valid_from  timestamptz default null,
+  p_valid_until timestamptz default null,
+  p_max_uses    integer     default null
+) returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_id uuid;
+begin
+  if coalesce(btrim(p_label), '') = '' then
+    raise exception 'label is required';
+  end if;
+
+  insert into public.door_passes
+    (label, kind, salt, hash, iterations, valid_from, valid_until, max_uses)
+  values
+    (btrim(p_label), p_kind, p_salt, p_hash, p_iterations,
+     p_valid_from, p_valid_until, p_max_uses)
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+-- Turning a pass off and back on. Separate from the window, because
+-- revoking and expiring are different things and conflating them is how
+-- you restore a pass and find it still does not work.
+create or replace function public.door_admin_revoke(p_id uuid, p_off boolean)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_rows integer;
+begin
+  update public.door_passes
+     set revoked_at = case when p_off then now() else null end
+   where id = p_id;
+  get diagnostics v_rows = row_count;
+  return v_rows;
+end;
+$$;
+
+create or replace function public.door_admin_window(
+  p_id          uuid,
+  p_valid_from  timestamptz,
+  p_valid_until timestamptz
+) returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_rows integer;
+begin
+  update public.door_passes
+     set valid_from = p_valid_from,
+         valid_until = p_valid_until
+   where id = p_id;
+  get diagnostics v_rows = row_count;
+  return v_rows;
+end;
+$$;
+
+create or replace function public.door_admin_uses(p_id uuid, p_max_uses integer)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_rows integer;
+begin
+  update public.door_passes
+     set max_uses = p_max_uses
+   where id = p_id;
+  get diagnostics v_rows = row_count;
+  return v_rows;
+end;
+$$;
+
+-- Prefer revoking. This is here because the page offers it, and because a
+-- pass created by mistake is better gone than kept forever; but a deleted
+-- pass drops out of the constant time scan and its rows in the attempt log
+-- lose their label, which revoking does not.
+create or replace function public.door_admin_delete(p_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_rows integer;
+begin
+  delete from public.door_passes where id = p_id;
+  get diagnostics v_rows = row_count;
+  return v_rows;
+end;
+$$;
+
+revoke execute on function public.door_admin_list()                         from public, anon, authenticated;
+revoke execute on function public.door_admin_create(text, text, text, text, integer, timestamptz, timestamptz, integer)
+                                                                            from public, anon, authenticated;
+revoke execute on function public.door_admin_revoke(uuid, boolean)          from public, anon, authenticated;
+revoke execute on function public.door_admin_window(uuid, timestamptz, timestamptz) from public, anon, authenticated;
+revoke execute on function public.door_admin_uses(uuid, integer)            from public, anon, authenticated;
+revoke execute on function public.door_admin_delete(uuid)                   from public, anon, authenticated;
+
+grant execute on function public.door_admin_list()                          to service_role;
+grant execute on function public.door_admin_create(text, text, text, text, integer, timestamptz, timestamptz, integer)
+                                                                            to service_role;
+grant execute on function public.door_admin_revoke(uuid, boolean)           to service_role;
+grant execute on function public.door_admin_window(uuid, timestamptz, timestamptz)  to service_role;
+grant execute on function public.door_admin_uses(uuid, integer)             to service_role;
+grant execute on function public.door_admin_delete(uuid)                    to service_role;

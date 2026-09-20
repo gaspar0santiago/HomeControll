@@ -61,8 +61,9 @@ const NO_EXPIRY_HOURS = 24 * 365 * 10;
 // first page of every guesser's list is not protected by the shortness of
 // its window: it falls on try one, not on try ten thousand.
 const OBVIOUS = ['0000', '1111', '1212', '1234', '12345', '123456', '2222', '2580',
-  '4321', '6969', '7777', '9999', 'ABC', 'ABCD', 'ABCDE', 'ASDF', 'DOOR', 'ENTER',
-  'HELLO', 'HOME', 'LOVE', 'OPEN', 'PASS', 'PLEASE', 'QWERTY', 'TEST'];
+  '4321', '6969', '7777', '9999', 'ABC', 'ABC123', 'ABCD', 'ABCDE', 'ASDF', 'C0DE',
+  'CODE', 'DOOR', 'ENTER', 'HELLO', 'HOME', 'LOVE', 'OPEN', 'PASS', 'PLEASE',
+  'QWERTY', 'TEST'];
 
 function tooObvious(pass) { return OBVIOUS.indexOf(pass) !== -1; }
 

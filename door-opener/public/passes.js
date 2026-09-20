@@ -101,6 +101,15 @@ function combinations(pass) {
 
 function tooObvious(pass) { return OBVIOUS.indexOf(pass) !== -1; }
 
+/** Letters, numbers or both. Both is the strongest of the three, and the
+    one nobody thinks to try: N3M4 is a keypad of 36 per position where
+    NEMA is one of 26, which is 4 times the room on 4 characters. */
+function shapeOf(pass) {
+  if (/^[0-9]+$/.test(pass)) return pass.length + ' numbers';
+  if (/^[A-Z]+$/.test(pass)) return pass.length + ' letters';
+  return pass.length + ' letters and numbers';
+}
+
 function hoursUntil(until) { return until ? (until.getTime() - Date.now()) / 3600000 : Infinity; }
 
 function guessOdds(pass, until) {
@@ -431,16 +440,27 @@ function paintWord() {
   var covers = describeHours(affordableHours(p));
   var w = wanted();
   var odds = guessOdds(p, w.until);
-  var shape = /^[0-9]+$/.test(p) ? p.length + ' numbers' : p.length + ' letters';
+  var shape = shapeOf(p);
 
   if (odds > MAX_GUESS_ODDS) {
     hint.className = 'hint fail';
     hint.textContent = shape + ' can cover about ' + covers + ', which is less than you asked for. '
-      + 'Shorten the time, or add a character.';
-  } else {
-    hint.className = 'hint';
-    hint.textContent = big(combinations(p)) + ' possible, so ' + shape
-      + ' can safely cover about ' + covers + '.';
+      + 'Shorten the time, or ' + (/^[A-Z]+$/.test(p) ? 'put a number in it.' : 'add a character.');
+    return;
+  }
+
+  hint.className = 'hint';
+  hint.textContent = big(combinations(p)) + ' possible, so ' + shape
+    + ' can safely cover about ' + covers + '.';
+
+  // The count above assumes somebody guessing characters. Somebody
+  // guessing words gets there far sooner, and no arithmetic here can see
+  // that a word is a word -- so the long windows, where a word list has
+  // the time to finish, say so out loud.
+  if (/^[A-Z]+$/.test(p) && (!w.until || hoursUntil(w.until) > 24 * 7)) {
+    hint.className = 'hint warn';
+    hint.textContent += ' But a real word is easier to guess than that number says, '
+      + 'and this one is on for a long time. Put a number in it, or use Make one up.';
   }
 }
 

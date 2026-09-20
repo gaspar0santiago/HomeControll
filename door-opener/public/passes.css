@@ -328,13 +328,23 @@ body {
 
 .sheet {
   position: fixed;
-  inset: 0;
+  left: 0;
+  right: 0;
+  /* Not inset: 0. When a phone keyboard opens, iOS leaves a fixed element
+     the size of the whole window and simply draws the keyboard over the
+     bottom of it, so a sheet anchored to the bottom ends up underneath the
+     keys. passes.js keeps these two pointed at the visual viewport, which
+     is the part actually on screen. The fallback is the old behaviour, for
+     a browser that has no visualViewport. */
+  top: var(--sheet-top, 0px);
+  height: var(--sheet-height, 100%);
   z-index: 20;
   background: rgba(4, 4, 8, 0.72);
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 24px 0 0;
   animation: fade 140ms var(--ease);
 }
@@ -342,6 +352,13 @@ body {
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
 .sheet-card {
+  /* An auto margin rather than align-items: flex-end on the sheet. Both
+     put the card at the bottom, but an auto margin gives up when there is
+     no room and lets the card overflow downwards, where it can be
+     scrolled to. flex-end overflows upwards instead, off the top of the
+     screen, out of reach -- which is what hid "Who is it for?" behind the
+     keyboard with no way to scroll back to it. */
+  margin-top: auto;
   width: 100%;
   max-width: 560px;
   border: 1px solid var(--border);

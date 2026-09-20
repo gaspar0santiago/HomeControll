@@ -68,3 +68,20 @@
   for = "/door.css"
   [headers.values]
     Cache-Control = "no-cache"
+
+# The pass manager. Same reasoning: a cached copy pointed at an old
+# function URL would just fail, and this one is used to let people in.
+[[headers]]
+  for = "/passes.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/passes.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/passes.css"
+  [headers.values]
+    Cache-Control = "no-cache"

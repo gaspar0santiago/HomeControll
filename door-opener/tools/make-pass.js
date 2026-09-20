@@ -11,8 +11,11 @@
 // never written anywhere and cannot be recovered afterwards; a lost pass
 // is regenerated, not looked up.
 //
-// There is no admin UI on purpose. This plus the SQL editor is the whole
-// management surface.
+// The other three ways to do this: tools/make-pass.html, which is this in a
+// form and hands you the same SQL; tools/manage.html, which calls door-admin
+// from a desktop; and public/passes.html, which does it from a phone. This
+// one needs nothing deployed and holds no key, so it is the one that still
+// works when the rest is off.
 
 const crypto = require('crypto');
 
@@ -53,6 +56,15 @@ const MAX_GUESS_ODDS = 0.10;
 // an infinite window would refuse every permanent pass however strong.
 // Ten years is the horizon a resident key is measured against instead.
 const NO_EXPIRY_HOURS = 24 * 365 * 10;
+
+// Tried first, always, whatever the arithmetic below says. A pass on the
+// first page of every guesser's list is not protected by the shortness of
+// its window: it falls on try one, not on try ten thousand.
+const OBVIOUS = ['0000', '1111', '1212', '1234', '12345', '123456', '2222', '2580',
+  '4321', '6969', '7777', '9999', 'ABC', 'ABCD', 'ABCDE', 'ASDF', 'DOOR', 'ENTER',
+  'HELLO', 'HOME', 'LOVE', 'OPEN', 'PASS', 'PLEASE', 'QWERTY', 'TEST'];
+
+function tooObvious(pass) { return OBVIOUS.indexOf(pass) !== -1; }
 
 // Matches MAX_PASS_LENGTH in the Edge Function. Anything longer is
 // rejected there before it is ever hashed, so it could never open a door.
@@ -131,11 +143,14 @@ function normalise(pass) {
 /**
  * What a guesser actually faces, assuming the worst about them: that they
  * know the length, and that a chosen pass means letters rather than the
- * full 36 character keypad.
+ * full 36 character keypad -- or, when it is all digits, ten.
  */
 function combinations(pass) {
   // Assume the worst about the guesser: that they know the length, and
-  // that a pass somebody chose is a word, so 26 per position and not 36.
+  // that they can see the shape. All digits is a keypad of ten, not of
+  // thirty-six. Four numbers is 10,000 tries, not 1.7 million, and scoring
+  // it the generous way would sell a PIN a window it cannot hold.
+  if (/^[0-9]+$/.test(pass)) return Math.pow(10, pass.length);
   return Math.pow(/[0-9]/.test(pass) ? 36 : 26, pass.length);
 }
 
@@ -260,6 +275,11 @@ function main() {
   // the window is. So this does not ask how long the pass is, it asks what
   // the window it was given would let through, which is the question that
   // actually decides whether the pass holds.
+  if (chosen && tooObvious(chosen)) {
+    usage(`"${chosen}" is one of the first things anyone tries, so no window is short\n` +
+      '  enough to make it safe. Pick another.');
+  }
+
   if (chosen && guessOdds(chosen, until) > MAX_GUESS_ODDS) {
     const fits = describeHours(affordableHours(chosen));
     usage(
@@ -267,8 +287,8 @@ function main() {
       `  ${strengthLine(chosen, until)}\n\n` +
       `  At ${chosen.length} characters it can cover about ${fits} before guessing it\n` +
       `  becomes likelier than ${Math.round(MAX_GUESS_ODDS * 100)}%. Either ${until ? 'shorten' : 'set'} the window with\n` +
-      '  --until, or add a character: every one you add multiplies what it can\n' +
-      '  carry by 26.'
+      `  --until, or add a character: every one you add multiplies what it can\n` +
+      `  carry by ${/^[0-9]+$/.test(chosen) ? 10 : 26}.`
     );
   }
 

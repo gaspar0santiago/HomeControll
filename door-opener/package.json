@@ -4,7 +4,7 @@
   "description": "Street door opener: Netlify page, Supabase mailbox, ESP32 relay",
   "private": true,
   "scripts": {
-    "check": "node --check tools/bundle-functions.js && node --check tools/make-key.js && node --check tools/make-pass.js && node --check public/door.js && node --check public/config.js",
+    "check": "node --check tools/bundle-functions.js && node --check tools/make-key.js && node --check tools/make-pass.js && node --check public/door.js && node --check public/passes.js && node --check public/config.js",
     "pass": "node tools/make-pass.js",
     "key": "node tools/make-key.js",
     "bundle": "node tools/bundle-functions.js"

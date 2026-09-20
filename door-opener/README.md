@@ -554,10 +554,42 @@ then open `tools/manage.html` from disk, paste in the function URL and the
 key, and press Connect. The key is kept in that browser's local storage so
 you are not retyping it every time.
 
-**Which of the two to use.** `make-pass.html` needs nothing deployed and
+### public/passes.html
+
+The same live manager as `manage.html`, but published with the door page, so
+whoever lives here can make a pass from a phone, at the door, in the pub,
+without a clone of this repo or a laptop.
+
+It is at `/passes.html` on the same site as the door page. Anyone can load
+it; nobody can do anything with it. Every action it performs goes through
+`door-admin`, which refuses any request that does not carry
+`DOOR_ADMIN_KEY`, and that key is a Supabase secret that is never served to
+a browser. What the page holds is whatever key the person using it pasted
+in, kept in that phone's local storage and wiped by the Lock button.
+
+Fill in `adminUrl` in `public/config.js` and they only have to paste the
+key. A link of the form
+
+```
+https://your-door-page.netlify.app/passes.html#k=THE-MANAGER-KEY
+```
+
+sets the key in one tap: the part after `#` is never sent to a server, so
+it stays out of Netlify's logs, and the page wipes it from the address bar
+as soon as it has read it. It is still a key in a message, so send it the
+way you would send a door key, and use the Lock button on a phone you are
+handing on.
+
+**Give this out carefully.** Anyone holding the manager key can mint a pass
+that never expires, and turn off everyone else's. It is a front door key,
+not a guest pass.
+
+**Which of the three to use.** `make-pass.html` needs nothing deployed and
 holds no key, so it still works when everything else is off, and it is the
-one to keep for that reason. `manage.html` is the everyday one. Neither is
-in `public/`, and CI fails if either moves there.
+one to keep for that reason. `passes.html` is the everyday one, on a phone.
+`manage.html` is the same thing on a desktop, and needs no site deployed at
+all. Neither of the two `tools/` pages is in `public/`, and CI fails if
+either moves there.
 
 What it deliberately keeps from the design around it:
 
@@ -1005,9 +1037,24 @@ covers every case, because a longer pass simply earns a longer window:
 
 | Pass | Combinations | Longest window it can carry |
 | --- | --- | --- |
+| `4729` | 10,000 | about 8 hours |
 | `DIA` | 17,576 | about 14 hours |
 | `NEMA` | 456,976 | about 16 days |
+| `472913` | 1,000,000 | about 35 days |
+| `MADRID` | 3 × 10⁸ | about 29 years, so no end date is fine |
 | `ELEPHANT` | 2 × 10¹¹ | longer than the flat will exist |
+
+Numbers are counted as ten per position, not thirty-six. Somebody guessing
+a PIN tries digits, and scoring `4729` as if it could be `4H29` would sell
+it a window five times longer than it can hold. Which is why there is no
+four digit permanent pass: a pass with no end date is measured against ten
+years, and the shortest thing that carries that is six letters, or nine
+digits.
+
+A short list of passes is refused outright whatever the arithmetic says --
+`1234`, `0000`, `2580`, `QWERTY`, `DOOR`, `OPEN` and a handful more. They
+are not guessed on try nine thousand, they are guessed on try one, and a
+window short enough to cover that is a window too short to be useful.
 
 `DIA` across the eight hours in the example above is about a 5% chance of
 being guessed, and only by someone hammering your door for the whole night,
@@ -1180,7 +1227,7 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
 | File | Role |
 | --- | --- |
 | `public/index.html`, `door.css`, `door.js` | The page. Split into three files because the CSP has `script-src 'self'` and a CSP worth having cannot allow inline script |
-| `public/config.js` | The one file to edit: your `door-open` URL |
+| `public/config.js` | The one file to edit: your `door-open` and `door-admin` URLs |
 | `public/favicon.svg`, `favicon.ico`, `apple-touch-icon.png` | A door swinging open, in the button's lime. The `.ico` is for browsers that ask for `/favicon.ico` unprompted; the touch icon is what iOS uses when this page is added to a home screen, instead of a screenshot of the keypad |
 | `netlify.toml` | Publish directory and the security headers |
 | `supabase/schema.sql` | Tables, RLS, the claim and consume functions, the status view |
@@ -1189,7 +1236,8 @@ watchdog. CI checks the order in `door_opener.ino` on every push.
 | `supabase/functions/_shared/door.ts` | PBKDF2, constant time compare, client IP, RPC |
 | `tools/make-pass.js` | Generates a pass, prints it once, prints the SQL |
 | `tools/make-pass.html` | The same in a form, plus the SQL for managing passes. No keys, nothing deployed |
-| `tools/manage.html` | Live pass manager. Talks to `door-admin`, so it needs that key |
+| `tools/manage.html` | Live pass manager for a desktop, opened from disk. Talks to `door-admin`, so it needs that key |
+| `public/passes.html`, `passes.css`, `passes.js` | The same manager, published with the door page, for making a pass from a phone. Holds no key: it asks for one |
 | `supabase/functions/door-admin/` | Admin only. Lists, creates, edits and deletes passes. No path to the door |
 | `firmware/door_opener/door_opener.ino` | The ESP32 sketch |
 | `firmware/door_opener/config.h.example` | Copy to `config.h`, which is gitignored |

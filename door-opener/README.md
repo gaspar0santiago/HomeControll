@@ -1000,8 +1000,10 @@ node tools/make-pass.js guest --label "Sat party" --pass DIA \
   --from "2026-09-12T20:00" --until "2026-09-13T04:00"
 ```
 
-The generator page has the same thing under **Choose my own**, with the
-numbers live as you type.
+The generator page has the same thing under **Choose my own**, and
+`passes.html` under **Type my own**, both with the numbers live as you
+type. Letters and numbers mix freely: `N3M4` and `S4NTI` are ordinary
+passes, and stronger than the same characters as letters alone.
 
 Case, spaces and dashes are stripped before hashing, exactly as the door
 page strips them, so `DIA`, `dia` and `d-i-a` are one pass. The keypad is
@@ -1040,21 +1042,33 @@ covers every case, because a longer pass simply earns a longer window:
 | `4729` | 10,000 | about 8 hours |
 | `DIA` | 17,576 | about 14 hours |
 | `NEMA` | 456,976 | about 16 days |
+| `N3M4` | 1,679,616 | about 58 days |
 | `472913` | 1,000,000 | about 35 days |
-| `MADRID` | 3 × 10⁸ | about 29 years, so no end date is fine |
+| `P4RTY` | 6 × 10⁷ | about 6 years |
 | `ELEPHANT` | 2 × 10¹¹ | longer than the flat will exist |
 
-Numbers are counted as ten per position, not thirty-six. Somebody guessing
-a PIN tries digits, and scoring `4729` as if it could be `4H29` would sell
-it a window five times longer than it can hold. Which is why there is no
-four digit permanent pass: a pass with no end date is measured against ten
-years, and the shortest thing that carries that is six letters, or nine
-digits.
+Three sizes of alphabet, and which one a pass gets is decided by what is
+in it. All numbers is ten per position: somebody guessing a PIN guesses
+digits, and scoring `4729` as if it could be `4H29` would sell it a window
+five times longer than it can hold. All letters is twenty six. Anything
+with both is thirty six, which is why `N3M4` carries almost four times
+what `NEMA` does on the same four characters: one number in the middle of
+a word is the cheapest strength there is.
 
 A short list of passes is refused outright whatever the arithmetic says --
 `1234`, `0000`, `2580`, `QWERTY`, `DOOR`, `OPEN` and a handful more. They
 are not guessed on try nine thousand, they are guessed on try one, and a
 window short enough to cover that is a window too short to be useful.
+
+**What this arithmetic does not know.** It counts somebody guessing
+characters. Somebody guessing *words* gets there far sooner: there are
+maybe twenty thousand six letter words, not three hundred million, so
+`MADRID` as a permanent pass is worth days of guessing and not the
+twenty nine years the table's method would give it. Nothing here can tell
+a word from a string, so `passes.html` says so instead: choose a pass of
+letters alone, and give it a window longer than a week, and it warns. For
+a pass meant to last, use a generated one -- or put a number somewhere
+inside it, which is what `N3M4` is doing.
 
 `DIA` across the eight hours in the example above is about a 5% chance of
 being guessed, and only by someone hammering your door for the whole night,

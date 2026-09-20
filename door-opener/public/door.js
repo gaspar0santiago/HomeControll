@@ -7,20 +7,28 @@
 // back from the Edge Function. Reading this file tells an attacker the
 // shape of the API and nothing else.
 
-// Every character that survives normalise(), so anything that can be a
-// pass can be tapped in here.
+// The layout of a phone keyboard, row for row.
 //
-// This is deliberately wider than the generator's alphabet in
-// tools/make-pass.js, which leaves out 0, O, 1 and I. That exclusion is
-// about *random* passes: eight random characters read off a screen in a
-// dark hallway, where O against 0 is a failed attempt and a second trip
-// down the stairs. A pass somebody chose is not read that way. You know
-// DIA is not D1A, because you knew the word before you saw it.
+// It was alphabetical in a six wide grid before, which is the arrangement
+// old television on-screen keyboards use and is disliked for the same
+// reason: thirty-six identical keys in an order nobody's fingers know, so
+// every character is a visual search. Worse, digits and letters shared
+// rows — the second row read `6 7 8 9 A B` — so there was not even a
+// boundary to navigate by.
 //
-// So the generator keeps its 32 unambiguous characters and the keypad
-// carries all 36. Nothing that can be stored is unenterable.
-var KEYPAD = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-var COLUMNS = 6;
+// QWERTY needs no learning, because the muscle memory already exists. The
+// digits get their own row, and the stagger gives the eye something to
+// land on.
+//
+// Together these carry every character normalise() can return, which is
+// wider than the generator's alphabet in tools/make-pass.js. That one
+// leaves out 0, O, 1 and I, because eight *random* characters read off a
+// screen in a dark hallway turn O against 0 into a second trip down the
+// stairs. A pass somebody chose is not read that way: you know DIA is not
+// D1A, because you knew the word before you saw it. So the generator keeps
+// its 32 unambiguous characters and the keypad carries all 36.
+var ROWS = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
+var KEYPAD = ROWS.join('');
 var MAX_LENGTH = 64;
 
 // Longest run the readout shows in full. Past this it keeps the tail, so
@@ -190,22 +198,30 @@ function buzz(pattern) {
 }
 
 // ── Keypad ────────────────────────────────────────────────────
-// Built from KEYPAD rather than written out in the HTML, so the keys and
-// the set of characters the page accepts cannot drift apart.
+// Built from ROWS rather than written out in the HTML, so the keys and the
+// set of characters the page accepts cannot drift apart.
 function buildKeypad() {
   var frag = document.createDocumentFragment();
 
-  KEYPAD.split('').forEach(function (character) {
-    var key = document.createElement('button');
-    key.type = 'button';
-    key.className = 'key';
-    key.textContent = character;
-    key.setAttribute('aria-label', character);
-    key.addEventListener('click', function () { append(character); });
-    frag.appendChild(key);
+  ROWS.forEach(function (characters) {
+    var row = document.createElement('div');
+    row.className = 'keyrow';
+    characters.split('').forEach(function (character) {
+      var key = document.createElement('button');
+      key.type = 'button';
+      key.className = 'key';
+      key.textContent = character;
+      key.setAttribute('aria-label', character);
+      key.addEventListener('click', function () { append(character); });
+      row.appendChild(key);
+    });
+    frag.appendChild(row);
   });
 
-  frag.appendChild(wideKey(
+  var last = document.createElement('div');
+  last.className = 'keyrow keyrow-wide';
+
+  last.appendChild(wideKey(
     'Delete last character',
     '<svg viewBox="0 0 24 24" aria-hidden="true">' +
       '<path d="M9 5.4h9.4A2.2 2.2 0 0 1 20.6 7.6v8.8a2.2 2.2 0 0 1-2.2 2.2H9L3.4 12z"/>' +
@@ -213,16 +229,18 @@ function buildKeypad() {
     backspace
   ));
 
-  frag.appendChild(wideKey('Clear everything', 'CLEAR', clearAll));
+  last.appendChild(wideKey('Clear everything', 'CLEAR', clearAll));
+  frag.appendChild(last);
 
   el.keys.appendChild(frag);
 
-  // KEYPAD is 36 characters and the two wide keys take three columns each,
-  // so the grid fills exactly: six rows of characters, then one row that is
-  // the two wide keys. If someone changes the set, say so rather than
-  // shipping a ragged last row.
-  if ((KEYPAD.length + 6) % COLUMNS !== 0) {
-    console.warn('Keypad does not fill its grid: ' + KEYPAD.length + ' characters over ' + COLUMNS + ' columns');
+  // normalise() can return exactly these 36 characters, so the rows have to
+  // cover them all, once each. A missing key is a stored pass that cannot
+  // be typed; a duplicate is a key doing nothing, and neither announces
+  // itself until somebody is standing at the door.
+  var expected = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  if (KEYPAD.split('').sort().join('') !== expected) {
+    console.warn('Keypad does not cover exactly the characters a pass can contain');
   }
 }
 

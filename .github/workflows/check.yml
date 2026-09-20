@@ -150,14 +150,18 @@ jobs:
       - name: The browser pass generators agree with the CLI
         working-directory: door-opener
         run: |
-          # Both HTML tools reimplement make-pass.js so they can be used
-          # without a clone. If the alphabet or the iteration count drift,
-          # every pass they make is rejected as "Not recognised" and nothing
-          # anywhere explains why.
+          # Three pages reimplement make-pass.js so they can be used without
+          # a clone. If the alphabet or the iteration count drift, every
+          # pass they make is rejected as "Not recognised" and nothing
+          # anywhere explains why. If the strength rule drifts, the drift is
+          # worse than silent: one of them hands out a pass the others would
+          # have refused as too weak for its window.
           cat > /tmp/gencheck.js <<'CHECK'
           const fs = require('fs');
           const cli = fs.readFileSync('tools/make-pass.js', 'utf8');
-          const PAGES = ['tools/make-pass.html', 'tools/manage.html'];
+          const PAGES = ['tools/make-pass.html', 'tools/manage.html', 'public/passes.js'];
+          const SHARED = ['ALPHABET', 'ITERATIONS', 'SALT_BYTES',
+                          'GUESSES_PER_HOUR', 'MAX_GUESS_ODDS', 'NO_EXPIRY_HOURS', 'OBVIOUS'];
 
           function pick(src, name, where) {
             const m = src.match(new RegExp('(?:^|[^A-Z_])' + name + '\\s*=\\s*([^;]+);', 'm'));
@@ -165,25 +169,61 @@ jobs:
             return m[1].trim();
           }
 
+          // Pulled out and run rather than compared as text: these are
+          // written differently in each file and it is the answers that
+          // have to match, not the spelling.
+          function combinationsOf(src, where) {
+            const m = src.match(/function combinations\(pass\)\s*\{[\s\S]*?\n\}/);
+            if (!m) { console.error('could not find combinations() in ' + where); process.exit(1); }
+            return new Function('return (' + m[0] + ')')();
+          }
+
+          const SAMPLES = ['DIA', 'NEMA', '1234', '0000', '123456789', 'A1B2C3D4', 'PARTY'];
+          const want = combinationsOf(cli, 'make-pass.js');
+
+          // A four digit pass is 10,000 tries, not 36^4. Scoring it the
+          // generous way is how a PIN gets sold a window it cannot hold, so
+          // the honest answer is pinned here, not just agreed on.
+          if (want('1234') !== 10000) {
+            console.error('make-pass.js scores a 4 digit pass as ' + want('1234') + ', not 10000');
+            process.exit(1);
+          }
+
           for (const page of PAGES) {
-            const html = fs.readFileSync(page, 'utf8');
-            for (const name of ['ALPHABET', 'ITERATIONS']) {
-              const a = pick(cli, name, 'make-pass.js'), b = pick(html, name, page);
+            const src = fs.readFileSync(page, 'utf8');
+            for (const name of SHARED) {
+              const a = pick(cli, name, 'make-pass.js'), b = pick(src, name, page);
               if (a !== b) {
                 console.error(name + ' differs: make-pass.js has ' + a + ', ' + page + ' has ' + b);
                 process.exit(1);
               }
             }
-            const script = html.match(/<script>([\s\S]*?)<\/script>/);
-            if (!script) { console.error('no inline script found in ' + page); process.exit(1); }
-            new Function(script[1]);
-            console.log(page + ': ALPHABET and ITERATIONS agree, inline script parses');
+
+            if (page.endsWith('.html')) {
+              const script = src.match(/<script>([\s\S]*?)<\/script>/);
+              if (!script) { console.error('no inline script found in ' + page); process.exit(1); }
+              new Function(script[1]);
+            }
+
+            const got = combinationsOf(src, page);
+            for (const sample of SAMPLES) {
+              if (got(sample) !== want(sample)) {
+                console.error('combinations("' + sample + '") differs: make-pass.js says '
+                  + want(sample) + ', ' + page + ' says ' + got(sample));
+                process.exit(1);
+              }
+            }
+            console.log(page + ': constants, strength rule and parse all agree with the CLI');
           }
           CHECK
           node /tmp/gencheck.js
 
-          # Both make or manage passes, so neither may ever be published.
-          # public/ is Netlify's publish directory.
+          # public/ is Netlify's publish directory. passes.html belongs
+          # there and is meant to be reached from a phone: everything it can
+          # do needs DOOR_ADMIN_KEY, which is a Supabase secret and is never
+          # served. These two are a different matter. make-pass.html hands
+          # out SQL to paste, and manage.html is its desktop twin; both are
+          # opened from a clone, neither has any business on the public site.
           for f in make-pass.html manage.html; do
             if [ -e "public/$f" ]; then
               echo "$f is in public/, which Netlify publishes"
@@ -191,6 +231,15 @@ jobs:
             fi
           done
           echo "neither is in public/, so Netlify never serves them"
+
+          # The published page must not carry a key of any kind. It asks for
+          # one and keeps it in the browser; a literal here would mean the
+          # site hands the door to every visitor.
+          if grep -nEi "(admin|device|dashboard)[-_]?key['\"]?\s*[:=]\s*['\"][A-Za-z0-9_-]{16,}" public/*.js public/*.html; then
+            echo "a key literal is in public/"
+            exit 1
+          fi
+          echo "no key literals in public/"
 
       - name: The CLI's hash matches what the Edge Function computes
         working-directory: door-opener

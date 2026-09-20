@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="robots" content="noindex, nofollow">
+<title>Door passes</title>
+
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+<link rel="stylesheet" href="passes.css">
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="bar">
+    <span class="bar-name">DOOR PASSES</span>
+    <button type="button" class="bar-btn" id="lock" hidden>Lock</button>
+  </header>
+
+  <!-- ── Locked ────────────────────────────────────────────────
+       Everything below is useless without the manager key, so the page
+       asks for nothing else until it has one. -->
+  <section class="gate" id="gate">
+    <h1 class="gate-title">Make a pass<br>for the street door</h1>
+    <p class="gate-say">
+      Paste the manager key. It is kept on this phone only, so you do this
+      once.
+    </p>
+
+    <label class="field">
+      <span class="field-name">Manager key</span>
+      <input class="input" id="key" type="password" inputmode="text"
+             autocomplete="off" autocorrect="off" autocapitalize="off"
+             spellcheck="false" placeholder="paste it here">
+    </label>
+
+    <details class="adv" id="url-wrap">
+      <summary class="adv-head">Another door</summary>
+      <label class="field">
+        <span class="field-name">door-admin URL</span>
+        <input class="input" id="url" type="url" inputmode="url"
+               autocomplete="off" autocorrect="off" autocapitalize="off"
+               spellcheck="false"
+               placeholder="https://your-project.supabase.co/functions/v1/door-admin">
+      </label>
+    </details>
+
+    <button type="button" class="go" id="unlock">Unlock</button>
+    <p class="note fail" id="gate-error" hidden></p>
+  </section>
+
+  <!-- ── Unlocked ──────────────────────────────────────────────── -->
+  <main class="app" id="app" hidden>
+
+    <button type="button" class="go" id="new">
+      <span class="go-plus" aria-hidden="true">+</span> New pass
+    </button>
+
+    <section class="list">
+      <div class="list-head">
+        <h2 class="list-title">Passes</h2>
+        <span class="live" id="live"><span class="dot" id="dot"></span><span id="live-text">…</span></span>
+      </div>
+      <ul class="rows" id="rows"></ul>
+      <p class="empty" id="empty" hidden>No passes yet. Make the first one.</p>
+      <p class="note fail" id="list-error" hidden></p>
+      <p class="fine">
+        A pass is only ever shown once, when it is made. The door stores a
+        scrambled copy it can check against and nothing more, so nobody —
+        not this page, not the database, not whoever built it — can read
+        one back. Lost one? Make another and turn the old one off.
+      </p>
+    </section>
+
+  </main>
+
+</div>
+
+<!-- ── New pass ────────────────────────────────────────────────── -->
+<div class="sheet" id="sheet-new" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="new-title">
+    <div class="sheet-head">
+      <h2 class="sheet-title" id="new-title">New pass</h2>
+      <button type="button" class="x" id="new-close" aria-label="Close">&times;</button>
+    </div>
+
+    <label class="field">
+      <span class="field-name">Who is it for?</span>
+      <input class="input" id="label" type="text" maxlength="60"
+             autocomplete="off" placeholder="Marta's sister">
+    </label>
+
+    <div class="field">
+      <span class="field-name">How long does it work?</span>
+      <div class="choices" id="how-long">
+        <button type="button" data-span="tonight" aria-pressed="true">Tonight</button>
+        <button type="button" data-span="day">24 hours</button>
+        <button type="button" data-span="weekend">This weekend</button>
+        <button type="button" data-span="week">A week</button>
+        <button type="button" data-span="month">A month</button>
+        <button type="button" data-span="forever">No end</button>
+      </div>
+      <p class="hint" id="span-hint"></p>
+    </div>
+
+    <div class="field">
+      <span class="field-name">The pass itself</span>
+      <div class="choices" id="source">
+        <button type="button" data-source="random" aria-pressed="true">Make one up</button>
+        <button type="button" data-source="word">A word</button>
+        <button type="button" data-source="digits">Numbers</button>
+      </div>
+      <input class="input word" id="custom" type="text" maxlength="64"
+             autocomplete="off" autocorrect="off" autocapitalize="characters"
+             spellcheck="false" placeholder="DIA" hidden>
+      <p class="hint" id="word-hint" hidden></p>
+    </div>
+
+    <details class="adv">
+      <summary class="adv-head">More</summary>
+
+      <label class="check">
+        <input type="checkbox" id="once">
+        <span>One use only — it stops working after the door opens once</span>
+      </label>
+
+      <label class="check">
+        <input type="checkbox" id="lives-here">
+        <span>They live here — keeps it out of the guest list</span>
+      </label>
+
+      <label class="field">
+        <span class="field-name">Or an exact end</span>
+        <input class="input" id="until" type="datetime-local">
+      </label>
+
+      <label class="field">
+        <span class="field-name">Not before</span>
+        <input class="input" id="from" type="datetime-local">
+      </label>
+    </details>
+
+    <p class="note fail" id="new-problem" hidden></p>
+    <button type="button" class="go" id="create">Create pass</button>
+  </div>
+</div>
+
+<!-- ── The pass, once ──────────────────────────────────────────── -->
+<div class="sheet" id="sheet-made" hidden>
+  <div class="sheet-card made" role="dialog" aria-modal="true" aria-labelledby="made-title">
+    <h2 class="sheet-title mid" id="made-title">Here it is</h2>
+    <p class="made-pass" id="made-pass"></p>
+    <p class="made-when" id="made-when"></p>
+
+    <div class="sheet-acts">
+      <button type="button" class="act wide" id="share">Send it</button>
+      <button type="button" class="act" id="copy">Copy</button>
+    </div>
+    <p class="said" id="said" hidden>Copied</p>
+
+    <p class="fine mid">
+      This is the only time anyone sees it. Send it now — it cannot be
+      looked up again.
+    </p>
+    <button type="button" class="go quiet" id="made-close">Done</button>
+  </div>
+</div>
+
+<!-- ── One pass ────────────────────────────────────────────────── -->
+<div class="sheet" id="sheet-one" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="one-title">
+    <div class="sheet-head">
+      <h2 class="sheet-title" id="one-title"></h2>
+      <button type="button" class="x" id="one-close" aria-label="Close">&times;</button>
+    </div>
+
+    <dl class="facts" id="one-facts"></dl>
+
+    <div class="sheet-acts">
+      <button type="button" class="act wide" id="one-off">Turn off</button>
+      <button type="button" class="act wide" id="one-on" hidden>Turn back on</button>
+    </div>
+
+    <div class="field">
+      <span class="field-name">Give it longer</span>
+      <div class="choices" id="one-extend">
+        <button type="button" data-extend="day">+ 24 hours</button>
+        <button type="button" data-extend="week">+ a week</button>
+        <button type="button" data-extend="month">+ a month</button>
+        <button type="button" data-extend="forever">No end</button>
+      </div>
+    </div>
+
+    <p class="note" id="one-note" hidden></p>
+    <button type="button" class="act danger" id="one-del">Delete for good</button>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="passes.js"></script>
+</body>
+</html>

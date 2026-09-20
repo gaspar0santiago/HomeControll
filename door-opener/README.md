@@ -972,11 +972,24 @@ The generator page has the same thing under **Choose my own**, with the
 numbers live as you type.
 
 Case, spaces and dashes are stripped before hashing, exactly as the door
-page strips them, so `DIA`, `dia` and `d-i-a` are one pass. The keypad
-carries all 36 characters, so anything you can choose can be tapped in.
-The *generator* still avoids 0, O, 1 and I when it picks at random, because
-a random string gets misread in a dark hallway in a way a word you already
-know does not.
+page strips them, so `DIA`, `dia` and `d-i-a` are one pass. The keypad is
+laid out as a phone keyboard and carries all 36 characters, so anything you
+can choose can be tapped in. The *generator* still avoids 0, O, 1 and I
+when it picks at random, because a random string gets misread in a dark
+hallway in a way a word you already know does not.
+
+```
+1 2 3 4 5 6 7 8 9 0
+Q W E R T Y U I O P
+ A S D F G H J K L
+   Z X C V B N M
+```
+
+QWERTY rather than alphabetical, because alphabetical order in a grid is
+the arrangement television on-screen keyboards use, and it is disliked for
+a reason: thirty-six identical keys in an order nobody's fingers know, so
+every character is a visual search. This one needs no learning at all, and
+the digits having their own row gives the eye something to land on.
 
 What decides whether a chosen pass is allowed is not its length. It is what
 its window lets through:

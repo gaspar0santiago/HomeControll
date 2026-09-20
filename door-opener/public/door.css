@@ -190,24 +190,45 @@ body {
 .status.busy { color: var(--accent); }
 
 /* ── Keypad ─────────────────────────────────────────────────── */
+/* Rows rather than a grid, because QWERTY's rows are 10, 10, 9 and 7 and
+   the short ones need to centre under the long ones. A grid can stagger
+   with column offsets; flex rows just do it. */
 .keys {
   flex: 1 1 auto;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  grid-auto-rows: minmax(48px, 1fr);
-  gap: 8px;
-  align-content: stretch;
+  display: flex;
+  flex-direction: column;
+  /* Five rows of ten do not need the whole panel, and stretching them fills
+     it with keys twice the height of a keyboard's. Sit at the bottom
+     instead, where a phone keyboard sits and where a thumb already is. */
+  justify-content: flex-end;
+  gap: 7px;
   min-height: 300px;
 }
 
+.keyrow {
+  display: flex;
+  flex: 1 1 0;
+  /* A key on a phone keyboard is around 33 by 42. Ten across makes these
+     31 wide, so the cap keeps the proportion recognisable instead of
+     letting them grow into columns. */
+  max-height: 64px;
+  gap: 6px;
+  justify-content: center;
+}
+
+/* Sized against the widest row, not against its own, so a key is the same
+   width whether it sits in the row of ten or the row of seven. Nine gaps
+   at 6px is the 54px. */
 .key {
+  flex: 0 1 calc((100% - 54px) / 10);
+  min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 9px;
   background: var(--surface-key);
   color: var(--text);
   font: inherit;
-  font-size: 21px;
-  letter-spacing: 0.04em;
+  font-size: 17px;
+  letter-spacing: 0.02em;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -221,7 +242,8 @@ body {
   transform: scale(0.94);
 }
 
-.key-wide { grid-column: span 3; font-size: 13px; letter-spacing: 0.12em; color: var(--muted); }
+/* The last row is two keys, so they simply share it. */
+.keyrow-wide .key { flex: 1 1 0; font-size: 13px; letter-spacing: 0.12em; color: var(--muted); }
 .key-wide svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ── Open button ────────────────────────────────────────────── */
@@ -272,7 +294,12 @@ body {
 /* ── Success takeover ───────────────────────────────────────── */
 /* Deliberately nothing like any other state on the page. Full bleed,
    one colour, two words. */
+/* An explicit display in here beats the [hidden] attribute's own rule, so
+   anything given a display needs naming, or it stays on screen while the
+   code believes it is gone. .keys is why "Type instead" used to leave the
+   keypad sitting under the text field. */
 .takeover[hidden],
+.keys[hidden],
 .typed[hidden] { display: none !important; }
 
 .takeover {
@@ -341,7 +368,7 @@ body {
 @media (max-height: 680px) {
   .readout { min-height: 62px; }
   .keys { min-height: 246px; }
-  .key { font-size: 19px; }
+  .key { font-size: 15px; }
   .open { min-height: 58px; }
   .status { min-height: 34px; }
 }

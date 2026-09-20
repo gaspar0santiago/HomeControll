@@ -45,7 +45,13 @@ body {
 }
 
 .panel {
+  /* Both, and in this order: a definite height is what lets the keypad
+     shrink on a short phone. With min-height alone the panel just grows to
+     whatever its contents ask for, so there is never any negative free
+     space and flex-shrink never runs. min-height keeps it filling the
+     screen on the tall ones. */
   min-height: 100dvh;
+  height: 100dvh;
   max-width: 460px;
   margin: 0 auto;
   padding: max(10px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
@@ -93,6 +99,13 @@ body {
 /* ── Readout ────────────────────────────────────────────────── */
 .readout {
   flex: 0 0 auto;
+  /* This auto margin and the one under the button are a pair: the panel's
+     spare height splits evenly between them, so the display, the status
+     line, the keypad and the button sit together as one block in the
+     middle of the screen rather than being stretched from the top edge to
+     the bottom one. On a short phone there is no spare height and both
+     collapse to nothing. */
+  margin-top: auto;
   min-height: 74px;
   padding: 14px 18px;
   border: 1px solid var(--border);
@@ -194,24 +207,26 @@ body {
    the short ones need to centre under the long ones. A grid can stagger
    with column offsets; flex rows just do it. */
 .keys {
-  flex: 1 1 auto;
+  /* Does not grow: the rows have a height that suits a thumb and there is
+     no reason to stretch past it. Still shrinks, so a short phone squeezes
+     the keys rather than pushing the button off screen. */
+  flex: 0 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  /* Five rows of ten do not need the whole panel, and stretching them fills
-     it with keys twice the height of a keyboard's. Sit at the bottom
-     instead, where a phone keyboard sits and where a thumb already is. */
   justify-content: flex-end;
   gap: 7px;
-  min-height: 300px;
 }
 
 .keyrow {
   display: flex;
-  flex: 1 1 0;
-  /* A key on a phone keyboard is around 33 by 42. Ten across makes these
-     31 wide, so the cap keeps the proportion recognisable instead of
-     letting them grow into columns. */
-  max-height: 64px;
+  /* A real basis, not 0: .keys no longer grows, so its height is the sum of
+     these, and a basis of 0 would collapse both to nothing. 64 is a little
+     taller than the ~42 a phone keyboard uses, which suits keys that are
+     only 31 wide. Shrinks on a short screen, to a floor a thumb can still
+     hit. */
+  flex: 0 1 64px;
+  min-height: 42px;
   gap: 6px;
   justify-content: center;
 }
@@ -249,6 +264,8 @@ body {
 /* ── Open button ────────────────────────────────────────────── */
 .open {
   flex: 0 0 auto;
+  /* The other half of the pair: keeps the button off the bottom edge. */
+  margin-bottom: auto;
   min-height: 68px;
   border: none;
   border-radius: 16px;
@@ -367,10 +384,18 @@ body {
 /* ── Compact phones ─────────────────────────────────────────── */
 @media (max-height: 680px) {
   .readout { min-height: 62px; }
-  .keys { min-height: 246px; }
   .key { font-size: 15px; }
   .open { min-height: 58px; }
   .status { min-height: 34px; }
+}
+
+/* Small old phones, 480 tall and down. The 42px row floor is more than
+   five rows can fit here, and rows that cannot shrink any further spill
+   out of the top of the keypad and over the status line. 36 still gives a
+   thumb something to land on, on a screen this size. */
+@media (max-height: 560px) {
+  .keyrow { flex-basis: 48px; min-height: 36px; }
+  .key { font-size: 14px; border-radius: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

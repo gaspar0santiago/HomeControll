@@ -638,7 +638,8 @@ el('new').addEventListener('click', function () {
   paintWord();
   validate();
   show(el('sheet-new'), true);
-  el('label').focus();
+  // Deliberately not focusing the first field. On a phone that throws the
+  // keyboard up over the sheet before anyone has seen what the sheet says.
 });
 
 el('new-close').addEventListener('click', function () { show(el('sheet-new'), false); });
@@ -753,11 +754,40 @@ el('one-del').addEventListener('click', async function () {
   closeOne();
 });
 
+// ── phone keyboards ───────────────────────────────────────────
+/** The visible part of the page, which the keyboard shrinks and the older
+    fixed positioning knows nothing about. */
+function fitSheets() {
+  var vv = window.visualViewport;
+  if (!vv) return;
+  var root = document.documentElement;
+  root.style.setProperty('--sheet-top', Math.round(vv.offsetTop) + 'px');
+  root.style.setProperty('--sheet-height', Math.round(vv.height) + 'px');
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', fitSheets);
+  window.visualViewport.addEventListener('scroll', fitSheets);
+}
+
+// Whatever is being typed into has to be in the half of the screen the
+// keyboard has left. The wait is for the keyboard to finish sliding up:
+// scrolling to a field before that scrolls to where it used to be.
+document.addEventListener('focusin', function (e) {
+  var field = e.target && e.target.closest ? e.target.closest('.input') : null;
+  if (!field) return;
+  setTimeout(function () {
+    fitSheets();
+    field.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, 300);
+});
+
 document.addEventListener('visibilitychange', function () {
   if (!document.hidden && conn.key && !el('app').hidden) refresh(true);
 });
 
 // ── start ─────────────────────────────────────────────────────
+fitSheets();
 load();
 paintSpan();
 validate();

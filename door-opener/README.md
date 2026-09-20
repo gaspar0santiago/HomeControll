@@ -1056,7 +1056,9 @@ what `NEMA` does on the same four characters: one number in the middle of
 a word is the cheapest strength there is.
 
 A short list of passes is refused outright whatever the arithmetic says --
-`1234`, `0000`, `2580`, `QWERTY`, `DOOR`, `OPEN` and a handful more. They
+`1234`, `0000`, `2580`, `QWERTY`, `DOOR`, `OPEN`, `C0DE` and a handful
+more, the page's own placeholder among them, so an example cannot become
+somebody's front door by being typed straight in. They
 are not guessed on try nine thousand, they are guessed on try one, and a
 window short enough to cover that is a window too short to be useful.
 

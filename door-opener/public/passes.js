@@ -36,8 +36,9 @@ var NO_EXPIRY_HOURS = 24 * 365 * 10;
 // first page of every guesser's list is not protected by the shortness of
 // its window: it falls on try one, not on try ten thousand.
 var OBVIOUS = ['0000', '1111', '1212', '1234', '12345', '123456', '2222', '2580',
-  '4321', '6969', '7777', '9999', 'ABC', 'ABCD', 'ABCDE', 'ASDF', 'DOOR', 'ENTER',
-  'HELLO', 'HOME', 'LOVE', 'OPEN', 'PASS', 'PLEASE', 'QWERTY', 'TEST'];
+  '4321', '6969', '7777', '9999', 'ABC', 'ABC123', 'ABCD', 'ABCDE', 'ASDF', 'C0DE',
+  'CODE', 'DOOR', 'ENTER', 'HELLO', 'HOME', 'LOVE', 'OPEN', 'PASS', 'PLEASE',
+  'QWERTY', 'TEST'];
 
 // The characters the door's keypad has. A pass with anything else in it
 // could never be typed at the door.
@@ -676,13 +677,17 @@ el('source').addEventListener('click', function (e) {
 
   var custom = el('custom');
   show(custom, state.source !== 'random');
-  if (state.source === 'digits') {
-    custom.inputMode = 'numeric';
-    custom.placeholder = '4729';
-  } else {
-    custom.inputMode = 'text';
-    custom.placeholder = 'DIA';
-  }
+
+  // Numbers only exists to bring up the number keypad; either way what is
+  // typed is checked the same. The two examples live on the input itself
+  // rather than here, because a placeholder in the markup and another one
+  // in the script is two places to change and one of them gets forgotten
+  // -- which is how this field went on suggesting DIA after the markup had
+  // stopped.
+  var digits = state.source === 'digits';
+  custom.inputMode = digits ? 'numeric' : 'text';
+  custom.placeholder = custom.dataset[digits ? 'digits' : 'word'] || custom.placeholder;
+
   if (state.source !== 'random') custom.focus();
   paintWord();
   validate();

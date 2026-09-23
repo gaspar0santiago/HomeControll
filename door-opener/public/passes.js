@@ -686,7 +686,10 @@ el('source').addEventListener('click', function (e) {
   // stopped.
   var digits = state.source === 'digits';
   custom.inputMode = digits ? 'numeric' : 'text';
-  custom.placeholder = custom.dataset[digits ? 'digits' : 'word'] || custom.placeholder;
+  // No fallback to the field's current placeholder: if a data attribute
+  // ever goes missing, an empty box says so, where keeping the last one
+  // would quietly show 1234 in the free text field and look deliberate.
+  custom.placeholder = custom.dataset[digits ? 'digits' : 'word'] || '';
 
   if (state.source !== 'random') custom.focus();
   paintWord();

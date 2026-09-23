@@ -147,6 +147,50 @@ jobs:
           fi
           echo "CLI refusals OK"
 
+      - name: The kiosk pages' icons resolve, and the two pages agree
+        working-directory: home-controller
+        run: |
+          # The sprite is copied between index.html and lights.html, and a
+          # <use> pointing at a symbol that is not there renders as nothing
+          # at all -- an empty card, with no error anywhere. Neither page is
+          # otherwise looked at by this workflow.
+          cat > /tmp/icons.js <<'CHECK'
+          const fs = require('fs');
+          const PAGES = ['public/index.html', 'public/lights.html'];
+          const read = f => fs.readFileSync(f, 'utf8');
+          const symbols = src => new Set([...src.matchAll(/<symbol id="([^"]+)"/g)].map(m => m[1]));
+          const uses = src => [...src.matchAll(/<use href="#([^"]+)"/g)].map(m => m[1]);
+
+          let bad = false;
+          const defined = {};
+          for (const page of PAGES) {
+            const src = read(page);
+            const have = symbols(src);
+            defined[page] = have;
+            const missing = [...new Set(uses(src))].filter(id => !have.has(id));
+            if (missing.length) {
+              console.error(page + ': <use> points at undefined symbol(s): ' + missing.join(', '));
+              bad = true;
+            }
+            const unused = [...have].filter(id => !uses(src).includes(id));
+            if (unused.length) console.log(page + ': unused symbols (harmless): ' + unused.join(', '));
+          }
+
+          // A symbol defined in both must be the same drawing in both, or
+          // the two kiosk pages show different icons for the same thing.
+          const [a, b] = PAGES;
+          const body = (src, id) => (src.match(new RegExp('<symbol id="' + id + '"[\\s\\S]*?</symbol>')) || [''])[0];
+          for (const id of [...defined[a]].filter(id => defined[b].has(id))) {
+            if (body(read(a), id) !== body(read(b), id)) {
+              console.error('symbol ' + id + ' differs between the two pages');
+              bad = true;
+            }
+          }
+          if (bad) process.exit(1);
+          console.log('every <use> resolves, and the shared symbols match');
+          CHECK
+          node /tmp/icons.js
+
       - name: The browser pass generators agree with the CLI
         working-directory: door-opener
         run: |

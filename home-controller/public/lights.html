@@ -257,7 +257,7 @@
   <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9.2 18.4h5.6M10.3 21.2h3.4"/><path d="M12 2.8a6 6 0 0 0-3.5 10.9c.6.5.9 1.1.9 1.8v.5h5.2v-.5c0-.7.3-1.3.9-1.8A6 6 0 0 0 12 2.8z"/></symbol>
   <symbol id="i-spotlight-l" viewBox="0 0 24 24"><path d="M19 9h-7.6v6H19a1.6 1.6 0 0 0 1.6-1.6v-2.8A1.6 1.6 0 0 0 19 9z"/><path d="M11.4 8.2L5.6 6v12l5.8-2.2z"/><path d="M15.8 15v3.2M13.2 18.6h5.2"/></symbol>
   <symbol id="i-spotlight-r" viewBox="0 0 24 24"><path d="M5 9h7.6v6H5a1.6 1.6 0 0 1-1.6-1.6v-2.8A1.6 1.6 0 0 1 5 9z"/><path d="M12.6 8.2l5.8-2.2v12l-5.8-2.2z"/><path d="M8.2 15v3.2M5.6 18.6h5.2"/></symbol>
-  <symbol id="i-disco" viewBox="0 0 24 24"><path d="M12 2.2v2.8"/><circle cx="12" cy="12.6" r="7.4"/><path d="M7.6 9.4h2.2M14.2 9.4h2.2M5.6 12.6h2.4M10.8 12.6h2.4M16 12.6h2.4M7.6 15.8h2.2M14.2 15.8h2.2"/></symbol>
+  <symbol id="i-disco" viewBox="0 0 24 24"><path d="M12 2.2v2.8"/><circle cx="12" cy="12.6" r="7.4"/><path d="M7.6 9.4h2.2M14.2 9.4h2.2M6.4 12.6h2.4M10.8 12.6h2.4M15.2 12.6h2.4M7.6 15.8h2.2M14.2 15.8h2.2"/></symbol>
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.4 10.8L12 3.6l8.6 7.2"/><path d="M5.9 9.6V20h12.2V9.6"/></symbol>
   <symbol id="i-square" viewBox="0 0 24 24"><rect x="5.2" y="5.2" width="13.6" height="13.6" rx="2.8"/></symbol>
   <symbol id="i-dice" viewBox="0 0 24 24"><rect x="3.8" y="3.8" width="16.4" height="16.4" rx="3.2"/><circle class="solid" cx="8.6" cy="8.6" r="1.15"/><circle class="solid" cx="12" cy="12" r="1.15"/><circle class="solid" cx="15.4" cy="15.4" r="1.15"/></symbol>
@@ -300,8 +300,13 @@
     <div class="zones-grid" id="zones-container"></div>
     <div class="bottom-row">
       <div class="bar-container" id="bar-container"></div>
+      <!-- Reads "Spotlight 1" and drives the plug called spotlight2. The
+           ids and the labels are off by one, deliberately left alone
+           because .env, server.js and plug_helper.py all use the ids.
+           Go by position on the row, not by the id: this is the left
+           one, so its lamp has to shine right, at the ball. -->
       <div class="disco-zone" id="spotlight2-card">
-        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-spotlight-l"/></svg></div>
+        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-spotlight-r"/></svg></div>
         <div class="zone-name">Spotlight 1</div>
         <div class="toggle" id="spotlight2-toggle" onclick="toggleSpotlight2()"></div>
       </div>
@@ -310,8 +315,10 @@
         <div class="zone-name">Disco Ball</div>
         <div class="toggle" id="disco-toggle" onclick="toggleDisco()"></div>
       </div>
+      <!-- "Spotlight 2", plug spotlight. The right hand one, so it
+           shines left. See the note on the left hand card. -->
       <div class="disco-zone" id="spotlight-card">
-        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-spotlight-r"/></svg></div>
+        <div class="disco-emoji"><svg class="ico" aria-hidden="true"><use href="#i-spotlight-l"/></svg></div>
         <div class="zone-name">Spotlight 2</div>
         <div class="toggle" id="spotlight-toggle" onclick="toggleSpotlight()"></div>
       </div>

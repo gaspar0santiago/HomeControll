@@ -147,6 +147,50 @@ jobs:
           fi
           echo "CLI refusals OK"
 
+      - name: The kiosk pages' icons resolve, and the two pages agree
+        working-directory: home-controller
+        run: |
+          # The sprite is copied between index.html and lights.html, and a
+          # <use> pointing at a symbol that is not there renders as nothing
+          # at all -- an empty card, with no error anywhere. Neither page is
+          # otherwise looked at by this workflow.
+          cat > /tmp/icons.js <<'CHECK'
+          const fs = require('fs');
+          const PAGES = ['public/index.html', 'public/lights.html'];
+          const read = f => fs.readFileSync(f, 'utf8');
+          const symbols = src => new Set([...src.matchAll(/<symbol id="([^"]+)"/g)].map(m => m[1]));
+          const uses = src => [...src.matchAll(/<use href="#([^"]+)"/g)].map(m => m[1]);
+
+          let bad = false;
+          const defined = {};
+          for (const page of PAGES) {
+            const src = read(page);
+            const have = symbols(src);
+            defined[page] = have;
+            const missing = [...new Set(uses(src))].filter(id => !have.has(id));
+            if (missing.length) {
+              console.error(page + ': <use> points at undefined symbol(s): ' + missing.join(', '));
+              bad = true;
+            }
+            const unused = [...have].filter(id => !uses(src).includes(id));
+            if (unused.length) console.log(page + ': unused symbols (harmless): ' + unused.join(', '));
+          }
+
+          // A symbol defined in both must be the same drawing in both, or
+          // the two kiosk pages show different icons for the same thing.
+          const [a, b] = PAGES;
+          const body = (src, id) => (src.match(new RegExp('<symbol id="' + id + '"[\\s\\S]*?</symbol>')) || [''])[0];
+          for (const id of [...defined[a]].filter(id => defined[b].has(id))) {
+            if (body(read(a), id) !== body(read(b), id)) {
+              console.error('symbol ' + id + ' differs between the two pages');
+              bad = true;
+            }
+          }
+          if (bad) process.exit(1);
+          console.log('every <use> resolves, and the shared symbols match');
+          CHECK
+          node /tmp/icons.js
+
       - name: The browser pass generators agree with the CLI
         working-directory: door-opener
         run: |
@@ -215,6 +259,26 @@ jobs:
             }
             console.log(page + ': constants, strength rule and parse all agree with the CLI');
           }
+
+          // Every example the page prints must be on the refused list. A
+          // pass shown to every visitor is not a secret, and the README
+          // promises exactly this. The examples get edited far more often
+          // than the list does, which is why a person is not the check.
+          const shown = fs.readFileSync('public/passes.html', 'utf8');
+          const field = shown.match(/<input[^>]*id="custom"[^>]*>/);
+          if (!field) { console.error('could not find the pass field in public/passes.html'); process.exit(1); }
+          const examples = [...field[0].matchAll(/(?:placeholder|data-digits)="([^"]+)"/g)]
+            .map(m => m[1].toUpperCase().replace(/[^0-9A-Z]/g, ''));
+          const obvious = new Function('return ' + pick(cli, 'OBVIOUS', 'make-pass.js'))();
+          for (const example of examples) {
+            if (!obvious.includes(example)) {
+              console.error('public/passes.html offers "' + example + '" as an example but it is not '
+                + 'on the refused list, so anyone reading the page could use it as a pass. '
+                + 'Add it to OBVIOUS in all four files, or pick an example that is already there.');
+              process.exit(1);
+            }
+          }
+          console.log('the page\'s own examples (' + examples.join(', ') + ') are all refused as passes');
           CHECK
           node /tmp/gencheck.js
 

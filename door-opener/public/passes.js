@@ -38,7 +38,7 @@ var NO_EXPIRY_HOURS = 24 * 365 * 10;
 var OBVIOUS = ['0000', '1111', '1212', '1234', '12345', '123456', '2222', '2580',
   '4321', '6969', '7777', '9999', 'ABC', 'ABC123', 'ABCD', 'ABCDE', 'ASDF', 'C0DE',
   'CODE', 'DOOR', 'ENTER', 'HELLO', 'HOME', 'LOVE', 'OPEN', 'PASS', 'PLEASE',
-  'QWERTY', 'TEST'];
+  'QWERTY', 'TEST', 'THEP3P3'];
 
 // The characters the door's keypad has. A pass with anything else in it
 // could never be typed at the door.
@@ -49,6 +49,13 @@ var STORE = 'doorPasses';
 
 var el = function (id) { return document.getElementById(id); };
 var cfg = (window.DOOR_CONFIG || {});
+
+// Read once, before anything can overwrite it. The example for a typed
+// pass is the placeholder in the markup, because that is the attribute
+// somebody goes looking for when they want to change it -- keeping a
+// second copy in here is what left this field suggesting DIA long after
+// the page had stopped saying so.
+var WORD_EXAMPLE = (document.getElementById('custom') || {}).placeholder || '';
 
 var conn = { url: '', key: '' };
 var state = { span: 'tonight', source: 'random' };
@@ -686,10 +693,10 @@ el('source').addEventListener('click', function (e) {
   // stopped.
   var digits = state.source === 'digits';
   custom.inputMode = digits ? 'numeric' : 'text';
-  // No fallback to the field's current placeholder: if a data attribute
+  // No fallback to whatever the field is showing: if the Numbers example
   // ever goes missing, an empty box says so, where keeping the last one
-  // would quietly show 1234 in the free text field and look deliberate.
-  custom.placeholder = custom.dataset[digits ? 'digits' : 'word'] || '';
+  // would quietly show a word in the numeric field and look deliberate.
+  custom.placeholder = digits ? (custom.dataset.digits || '') : WORD_EXAMPLE;
 
   if (state.source !== 'random') custom.focus();
   paintWord();

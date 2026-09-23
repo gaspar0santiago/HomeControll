@@ -259,6 +259,26 @@ jobs:
             }
             console.log(page + ': constants, strength rule and parse all agree with the CLI');
           }
+
+          // Every example the page prints must be on the refused list. A
+          // pass shown to every visitor is not a secret, and the README
+          // promises exactly this. The examples get edited far more often
+          // than the list does, which is why a person is not the check.
+          const shown = fs.readFileSync('public/passes.html', 'utf8');
+          const field = shown.match(/<input[^>]*id="custom"[^>]*>/);
+          if (!field) { console.error('could not find the pass field in public/passes.html'); process.exit(1); }
+          const examples = [...field[0].matchAll(/(?:placeholder|data-digits)="([^"]+)"/g)]
+            .map(m => m[1].toUpperCase().replace(/[^0-9A-Z]/g, ''));
+          const obvious = new Function('return ' + pick(cli, 'OBVIOUS', 'make-pass.js'))();
+          for (const example of examples) {
+            if (!obvious.includes(example)) {
+              console.error('public/passes.html offers "' + example + '" as an example but it is not '
+                + 'on the refused list, so anyone reading the page could use it as a pass. '
+                + 'Add it to OBVIOUS in all four files, or pick an example that is already there.');
+              process.exit(1);
+            }
+          }
+          console.log('the page\'s own examples (' + examples.join(', ') + ') are all refused as passes');
           CHECK
           node /tmp/gencheck.js
 
